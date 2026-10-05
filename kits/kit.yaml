@@ -18,6 +18,7 @@ components:
       linux: { method: apt, pkg: zellij }
       wsl: { method: script, url: "https://zellij.dev/launch" }
       windows: { method: winget, pkg: "Zellij.Zellij" }
+    seed: configs/zellij/config.kdl
 
   - id: alacritty
     name: Alacritty
@@ -33,6 +34,16 @@ components:
       linux: { method: apt, pkg: alacritty }
       wsl: { method: apt, pkg: alacritty }
       windows: { method: winget, pkg: "Alacritty.Alacritty" }
+    # The live alacritty.toml imports an Omakub path that does not exist off
+    # that machine. Bundle the theme and repoint the import at the bundled copy.
+    rewrites:
+      - from: "~/.config/omakub/current/theme/alacritty.toml"
+        to:
+          linux: "~/.config/alacritty/omakub-theme.toml"
+          wsl: "~/.config/alacritty/omakub-theme.toml"
+          windows: "%APPDATA%/alacritty/omakub-theme.toml"
+        bundle: true
+    seed: configs/alacritty/alacritty.toml
 
   - id: nvim
     name: Neovim (LazyVim)
@@ -63,6 +74,7 @@ components:
       linux: { method: script, url: "https://starship.rs/install.sh" }
       wsl: { method: script, url: "https://starship.rs/install.sh" }
       windows: { method: winget, pkg: "Starship.Starship" }
+    seed: configs/starship.toml
 
   - id: mise
     name: mise (runtime manager)
@@ -78,6 +90,7 @@ components:
       linux: { method: script, url: "https://mise.run" }
       wsl: { method: script, url: "https://mise.run" }
       windows: { method: winget, pkg: "jdx.mise" }
+    seed: configs/mise/config.toml
 
   - id: go
     name: Go

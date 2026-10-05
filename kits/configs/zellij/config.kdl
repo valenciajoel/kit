@@ -1,0 +1,19 @@
+// Minimal seed Zellij configuration shipped with kit.
+// Replace or extend it once you have a personalized setup.
+
+theme "default"
+
+default_mode "locked"
+default_layout "compact"
+
+on_force_close "quit"
+show_startup_tips false
+
+keybinds clear-defaults=true {
+    locked {
+        bind "Ctrl g" { SwitchToMode "normal"; }
+    }
+    shared_except "locked" {
+        bind "Ctrl q" { Quit; }
+    }
+}

@@ -1,0 +1,5 @@
+# Minimal seed mise configuration shipped with kit.
+[tools]
+go = "latest"
+node = "latest"
+python = "latest"

@@ -42,6 +42,10 @@ opencode — on Linux, WSL2, and (planned) Windows native.
     internal/manifest/  kit.yaml types, loader, validation
     internal/inventory/ OS/arch/distro/WSL + tool detection
     internal/target/    target strategies (linux|wsl|windows) + path resolution
+    internal/portable/  home-path normalization and rendering
+    internal/bundle/    export: capture, sanitize, rewrite, zip
+    internal/restore/   apply a bundle's configs to a target
+    internal/install/   install plan and execution
     internal/tui/       Bubbletea models, screens, styles
     kits/               embedded default manifest + seed configs (embed.FS)
     odd/tasks/          feature task documents

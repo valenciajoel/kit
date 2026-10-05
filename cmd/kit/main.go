@@ -15,12 +15,14 @@ import (
 	"github.com/valenciajoel/kit/internal/install"
 	"github.com/valenciajoel/kit/internal/inventory"
 	"github.com/valenciajoel/kit/internal/manifest"
+	"github.com/valenciajoel/kit/internal/restore"
 	"github.com/valenciajoel/kit/internal/target"
 	"github.com/valenciajoel/kit/internal/tui"
 	"github.com/valenciajoel/kit/kits"
 )
 
-const version = "0.2.0"
+// version is overridable at build time via -ldflags "-X main.version=...".
+var version = "0.3.0"
 
 func main() {
 	m, err := manifest.Load(kits.FS, "kit.yaml")
@@ -41,6 +43,8 @@ func main() {
 			cmdExport(m, env, tgt, args[1:])
 		case "install":
 			cmdInstall(m, tgt, args[1:])
+		case "restore":
+			cmdRestore(m, env, tgt, args[1:])
 		case "version", "--version", "-v":
 			fmt.Println("kit " + version)
 		case "help", "--help", "-h":
@@ -141,6 +145,53 @@ func cmdInstall(m *manifest.Manifest, tgt target.Target, args []string) {
 	}
 }
 
+func cmdRestore(m *manifest.Manifest, env inventory.Environment, tgt target.Target, args []string) {
+	fs := flag.NewFlagSet("restore", flag.ExitOnError)
+	dry := fs.Bool("dry-run", false, "report what would be written without writing")
+	force := fs.Bool("force", false, "overwrite existing files")
+	targetName := fs.String("target", string(tgt), "destination target: linux|wsl|windows")
+	_ = fs.Parse(args)
+
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "usage: kit restore [--dry-run] [--force] [--target T] <bundle.zip>")
+		os.Exit(2)
+	}
+	rt := target.Target(*targetName)
+	if !rt.Valid() {
+		fmt.Fprintf(os.Stderr, "kit restore: invalid target %q\n", *targetName)
+		os.Exit(2)
+	}
+
+	res, err := restore.Restore(restore.Options{
+		BundlePath: fs.Arg(0),
+		Manifest:   m,
+		Env:        env,
+		Target:     rt,
+		DryRun:     *dry,
+		Force:      *force,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit restore: "+err.Error())
+		os.Exit(1)
+	}
+
+	if *dry {
+		fmt.Printf("kit restore (dry-run, target=%s) — nothing written\n", rt)
+	} else {
+		fmt.Printf("kit restore (target=%s)\n", rt)
+	}
+	fmt.Printf("wrote %d file(s), skipped %d\n", len(res.Written), len(res.Skipped))
+	for _, p := range res.Written {
+		fmt.Println("  + " + p)
+	}
+	for _, p := range res.Skipped {
+		fmt.Println("  = " + p)
+	}
+	for _, w := range res.Warnings {
+		fmt.Println("  warning: " + w)
+	}
+}
+
 func humanBytes(n int64) string {
 	switch {
 	case n >= 1<<20:
@@ -165,5 +216,10 @@ Usage:
   kit install [flags] [id...]
                          print (and optionally run) the install plan
         --apply          execute the plan; without it this is a dry-run
+  kit restore [flags] <bundle.zip>
+                         apply a bundle's configs to this machine
+        --dry-run        report destinations without writing
+        --force          overwrite existing files
+        --target T       destination target: linux|wsl|windows
   kit version            print version`)
 }

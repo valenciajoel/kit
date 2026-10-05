@@ -15,7 +15,17 @@ type Component struct {
 	Bin      string             `yaml:"bin,omitempty"`
 	Optional bool               `yaml:"optional,omitempty"`
 	Configs  []ConfigSpec       `yaml:"configs,omitempty"`
+	Rewrites []Rewrite          `yaml:"rewrites,omitempty"`
 	Install  map[string]Install `yaml:"install,omitempty"`
+	Seed     string             `yaml:"seed,omitempty"`
+}
+
+// Rewrite points a config reference at a bundled path, so third-party imports
+// (for example the Omakub alacritty theme) survive a move to another machine.
+type Rewrite struct {
+	From   string            `yaml:"from"`
+	To     map[string]string `yaml:"to"`
+	Bundle bool              `yaml:"bundle,omitempty"`
 }
 
 // ConfigSpec maps a source path on the live machine to a per-target destination.

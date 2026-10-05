@@ -1,0 +1,15 @@
+# Minimal seed Alacritty configuration shipped with kit.
+# It intentionally has no third-party imports so it works on any machine.
+
+[env]
+TERM = "xterm-256color"
+
+[terminal]
+shell = "zellij"
+
+[font]
+normal = { family = "monospace" }
+size = 11
+
+[window]
+padding = { x = 10, y = 10 }

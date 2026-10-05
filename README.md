@@ -1,0 +1,109 @@
+# kit
+
+A cross-platform TUI that detects, exports, and installs a terminal/dev kit —
+**Zellij + Alacritty + nvim (LazyVim) + starship + mise + opencode** — on Linux,
+WSL2, and (planned) Windows native.
+
+The goal: move a full development environment between machines (including the
+two sides of a dual boot) from one portable bundle, without ever leaking a secret.
+
+## Status
+
+Early but functional. `detect`, `export`, `install`, and `restore` work end to
+end on Linux; the `wsl` and `windows` targets are modelled and used for path
+resolution, with real-machine testing still pending.
+
+## Requirements
+
+- Go 1.26 or newer.
+
+## Build and run
+
+    go build ./...
+    go test ./...
+    go run ./cmd/kit            # launch the TUI
+    go run ./cmd/kit detect     # environment + component status
+
+Or with the Makefile:
+
+    make build                  # -> bin/kit
+    make build-linux            # -> bin/kit-linux-amd64
+    make build-windows          # -> bin/kit-windows-amd64.exe
+    make test
+
+## Usage
+
+    kit            launch the TUI (Dashboard / Inventory / Actions)
+    kit detect     print OS, arch, distro, WSL flag, and per-component status
+    kit export     capture the kit as a secret-sanitized bundle (zip)
+                     --out DIR     output directory (default "bundles")
+                     --dry-run     report captured files and redactions, write nothing
+    kit install    print (and optionally run) the install plan
+                     --apply       execute the plan; without it this is a dry-run
+    kit restore    apply a bundle's configs to this machine
+                     --dry-run     report destinations without writing
+                     --force       overwrite existing files
+                     --target T    destination target: linux|wsl|windows
+
+## How it works
+
+Everything is driven by a declarative manifest, `kits/kit.yaml`, embedded in the
+binary. Each component declares how to detect it, which config files it owns,
+and how to install it per target:
+
+```yaml
+- id: zellij
+  name: Zellij
+  kind: terminal-multiplexer
+  bin: zellij
+  configs:
+    - src: "~/.config/zellij/config.kdl"
+      dest:
+        linux: "~/.config/zellij/config.kdl"
+        windows: "%APPDATA%/zellij/config.kdl"
+  install:
+    linux:   { method: apt,    pkg: zellij }
+    windows: { method: winget, pkg: "Zellij.Zellij" }
+  seed: configs/zellij/config.kdl
+```
+
+Install methods: `apt`, `mise`, `npm`, `script`, `winget`, `cargo`, `manual`.
+
+### Portability
+
+- `export` rewrites absolute home paths to `~` and repoints third-party imports
+  (for example the Omakub alacritty theme) at a bundled copy, so a config keeps
+  working on a machine that never had that dependency.
+- `restore` renders `~` back to the destination machine's home directory and
+  resolves each file against its per-target destination.
+- Bundles never record the hostname or absolute source paths.
+
+## Security
+
+This is a **public** repository. See `AGENTS.md` for the full policy.
+
+- `export` sanitizes every captured config: keys matching credential patterns
+  (`api_key`, `*_TOKEN`, `password`, `authorization`, `client_secret`, ...) and
+  recognizable credential values are replaced with `${REDACTED}`.
+- Real credentials belong in environment variables or an untracked local file,
+  never in a tracked file.
+- Never commit a secret. If one is committed, rotate it immediately.
+
+## Layout
+
+    cmd/kit/            entrypoint: TUI + CLI subcommands
+    internal/manifest/  kit.yaml types, loader, validation
+    internal/inventory/ OS/arch/distro/WSL + tool detection
+    internal/target/    target strategies (linux|wsl|windows) + path resolution
+    internal/portable/  home-path normalization and rendering
+    internal/bundle/    export: capture, sanitize, rewrite, zip
+    internal/restore/   apply a bundle's configs to a target
+    internal/install/   install plan and execution
+    internal/tui/       Bubbletea models, screens, styles
+    kits/               embedded default manifest + seed configs (embed.FS)
+
+## Roadmap
+
+- Real-machine WSL2 and native Windows validation.
+- Windows-native installers.
+- More seed configs and richer manifest coverage.

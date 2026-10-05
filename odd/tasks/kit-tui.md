@@ -79,8 +79,13 @@ components:
 - [x] **T6** `cmd/kit`: CLI wiring (`detect`, `export`, `install`) + TUI default. — `kit detect` prints all 10 components
 - [x] **T7** `internal/bundle`: capture configs, resolve paths, secret sanitization, zip. — 103 files, 1 real secret redacted, paths relativized to `~`
 - [x] **T8** `internal/install`: strategy interface + apt/mise/npm/script methods + dry-run. — plan builds 9 run + 1 skip for linux
-- [ ] **T9** `kits/`: seed configs (zellij, alacritty, starship, mise, opencode sanitized) + full manifest. (pending)
-- [ ] **T10** Tests (`go test ./...`), README, build scripts for linux/windows. (pending)
+- [x] **T9** `internal/portable`: home-path normalization/render + manifest `rewrites`
+      (fixes the Omakub alacritty import) + seed configs in `kits/configs/`.
+- [x] **T11** `internal/restore` + `kit restore`: apply a bundle's configs to a target,
+      rendering `~` per destination machine; seeds fill gaps. (added when the missing
+      import/restore step was identified)
+- [x] **T10** Tests (sanitize, install plan, portable round-trip, export→restore), README,
+      Makefile with linux/windows builds.
 
 ## Route / trigger evidence
 - Writer trigger (2+ non-trivial files) would normally delegate. This runtime exposes
@@ -125,3 +130,11 @@ components:
   replacing whole objects. Narrowed to specific substrings + precise suffixes; added
   regression tests. **Privacy fix**: bundle metadata no longer records hostname or
   absolute paths — sources are rewritten to `~/...`.
+- 2026-10-05: Slice 3 (T9, T11, T10) implemented inline. `go build`, `go vet`,
+  `go test ./...` pass (bundle, install, portable, restore). Verified end to end:
+  `kit export` rewrote the alacritty Omakub import to
+  `~/.config/alacritty/omakub-theme.toml`, bundled the theme (797 B), and
+  `kit restore --dry-run` resolved both files to `~/.config/alacritty/*`.
+  **Note**: an `accent` test on export/restore between two different home
+  directories confirms `~` normalization + per-machine rendering; a Windows-target
+  dry-run confirms `%APPDATA%` mapping.

@@ -17,11 +17,15 @@ import (
 
 	"github.com/valenciajoel/kit/internal/inventory"
 	"github.com/valenciajoel/kit/internal/manifest"
+	"github.com/valenciajoel/kit/internal/portable"
 	"github.com/valenciajoel/kit/internal/target"
 )
 
 // DefaultOutDir is where bundles are written when no output directory is given.
 const DefaultOutDir = "bundles"
+
+// MetadataFile is the manifest describing a bundle's contents.
+const MetadataFile = "bundle.yaml"
 
 // maxFileSize bounds how large a single captured file may be.
 const maxFileSize = 8 << 20 // 8 MiB
@@ -55,13 +59,16 @@ type Redaction struct {
 	Line int    `yaml:"line,omitempty"`
 }
 
-// Captured describes one file written into the bundle.
+// Captured describes one file written into the bundle and where it should land.
 type Captured struct {
-	ComponentID string      `yaml:"component"`
-	Source      string      `yaml:"source"`
-	ArchivePath string      `yaml:"archive_path"`
-	Bytes       int64       `yaml:"bytes"`
-	Redactions  []Redaction `yaml:"redactions,omitempty"`
+	ComponentID string            `yaml:"component"`
+	Source      string            `yaml:"source,omitempty"`
+	Rel         string            `yaml:"rel,omitempty"`
+	Dest        map[string]string `yaml:"dest,omitempty"`
+	DestIsDir   bool              `yaml:"dest_is_dir,omitempty"`
+	ArchivePath string            `yaml:"archive_path"`
+	Bytes       int64             `yaml:"bytes"`
+	Redactions  []Redaction       `yaml:"redactions,omitempty"`
 }
 
 // Result is the outcome of an export run.
@@ -72,28 +79,21 @@ type Result struct {
 	Warnings   []string
 }
 
-type metadata struct {
+// Metadata is the bundle manifest written to MetadataFile.
+type Metadata struct {
 	Version    int         `yaml:"version"`
 	Created    string      `yaml:"created"`
 	Target     string      `yaml:"target"`
-	Source     srcInfo     `yaml:"source"`
+	Source     SrcInfo     `yaml:"source"`
 	Captured   []Captured  `yaml:"captured"`
 	Redactions []Redaction `yaml:"redactions,omitempty"`
 }
 
-type srcInfo struct {
+// SrcInfo describes the machine a bundle was exported from.
+type SrcInfo struct {
 	OS     string `yaml:"os"`
 	Arch   string `yaml:"arch"`
 	Distro string `yaml:"distro,omitempty"`
-}
-
-// relativize rewrites a path under the home directory as "~/...", so bundles
-// never carry a machine-specific absolute path or the user's account name.
-func relativize(env inventory.Environment, p string) string {
-	if env.Home != "" && strings.HasPrefix(p, env.Home) {
-		return "~" + strings.TrimPrefix(p, env.Home)
-	}
-	return p
 }
 
 // Export captures the configured components for the current target. When
@@ -145,13 +145,53 @@ func Export(opts Options) (*Result, error) {
 					if rerr != nil {
 						return rerr
 					}
-					return captureFile(c.ID, p, rel, opts, res, staging)
+					return captureFile(captureSpec{
+						componentID: c.ID,
+						srcPath:     p,
+						rel:         filepath.ToSlash(rel),
+						dest:        cf.Dest,
+						destIsDir:   true,
+						rewrites:    c.Rewrites,
+					}, opts, res, staging)
 				})
 			} else {
-				err = captureFile(c.ID, src, filepath.Base(src), opts, res, staging)
+				err = captureFile(captureSpec{
+					componentID: c.ID,
+					srcPath:     src,
+					rel:         filepath.Base(src),
+					dest:        cf.Dest,
+					destIsDir:   false,
+					rewrites:    c.Rewrites,
+				}, opts, res, staging)
 			}
 			if err != nil {
 				res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %v", c.ID, err))
+			}
+		}
+
+		for _, rw := range c.Rewrites {
+			if !rw.Bundle {
+				continue
+			}
+			to := rw.To[string(opts.Target)]
+			if to == "" {
+				continue
+			}
+			src := target.ExpandPath(opts.Target, opts.Env, rw.From)
+			if _, err := os.Stat(src); err != nil {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("%s: rewrite source not found (%s)", c.ID, src))
+				continue
+			}
+			base := filepath.Base(filepath.FromSlash(to))
+			if err := captureFile(captureSpec{
+				componentID: c.ID,
+				srcPath:     src,
+				rel:         base,
+				dest:        rw.To,
+				destIsDir:   false,
+				archivePath: filepath.ToSlash(filepath.Join("configs", c.ID, "_rewrites", base)),
+			}, opts, res, staging); err != nil {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("%s: rewrite bundle: %v", c.ID, err))
 			}
 		}
 	}
@@ -164,11 +204,11 @@ func Export(opts Options) (*Result, error) {
 		return res, nil
 	}
 
-	meta := metadata{
+	meta := Metadata{
 		Version:    1,
 		Created:    time.Now().Format(time.RFC3339),
 		Target:     string(opts.Target),
-		Source:     srcInfo{OS: string(opts.Env.OS), Arch: opts.Env.Arch, Distro: strings.TrimSpace(opts.Env.Distro + " " + opts.Env.DistroVersion)},
+		Source:     SrcInfo{OS: string(opts.Env.OS), Arch: opts.Env.Arch, Distro: strings.TrimSpace(opts.Env.Distro + " " + opts.Env.DistroVersion)},
 		Captured:   res.Captured,
 		Redactions: res.Redactions,
 	}
@@ -176,7 +216,7 @@ func Export(opts Options) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bundle: encode metadata: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(staging, "bundle.yaml"), yamlBytes, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(staging, MetadataFile), yamlBytes, 0o644); err != nil {
 		return nil, fmt.Errorf("bundle: write metadata: %w", err)
 	}
 
@@ -191,33 +231,51 @@ func Export(opts Options) (*Result, error) {
 	return res, nil
 }
 
-func captureFile(componentID, srcPath, rel string, opts Options, res *Result, staging string) error {
-	archivePath := filepath.ToSlash(filepath.Join("configs", componentID, rel))
+type captureSpec struct {
+	componentID string
+	srcPath     string
+	rel         string
+	dest        map[string]string
+	destIsDir   bool
+	archivePath string
+	rewrites    []manifest.Rewrite
+}
 
-	info, err := os.Stat(srcPath)
+func captureFile(cs captureSpec, opts Options, res *Result, staging string) error {
+	archivePath := cs.archivePath
+	if archivePath == "" {
+		archivePath = filepath.ToSlash(filepath.Join("configs", cs.componentID, cs.rel))
+	}
+
+	info, err := os.Stat(cs.srcPath)
 	if err != nil {
 		return err
 	}
 	if info.Size() > maxFileSize {
-		res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %s exceeds %d bytes, skipped", componentID, archivePath, maxFileSize))
+		res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %s exceeds %d bytes, skipped", cs.componentID, archivePath, maxFileSize))
 		return nil
 	}
 
-	data, err := os.ReadFile(srcPath)
+	data, err := os.ReadFile(cs.srcPath)
 	if err != nil {
 		return err
 	}
 
 	var reds []Redaction
 	if bytes.IndexByte(data, 0) >= 0 {
-		res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %s looks binary, copied without sanitizing", componentID, archivePath))
+		res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %s looks binary, copied without sanitizing", cs.componentID, archivePath))
 	} else {
+		data = portable.Normalize(data, opts.Env)
+		data = applyRewrites(data, cs.rewrites, opts)
 		data, reds = Sanitize(data, archivePath)
 	}
 
 	res.Captured = append(res.Captured, Captured{
-		ComponentID: componentID,
-		Source:      relativize(opts.Env, srcPath),
+		ComponentID: cs.componentID,
+		Source:      relativize(opts.Env, cs.srcPath),
+		Rel:         cs.rel,
+		Dest:        cs.dest,
+		DestIsDir:   cs.destIsDir,
 		ArchivePath: archivePath,
 		Bytes:       int64(len(data)),
 		Redactions:  reds,
@@ -236,6 +294,21 @@ func captureFile(componentID, srcPath, rel string, opts Options, res *Result, st
 	return nil
 }
 
+// applyRewrites repoints third-party config references at their bundled path.
+func applyRewrites(data []byte, rewrites []manifest.Rewrite, opts Options) []byte {
+	for _, rw := range rewrites {
+		to := rw.To[string(opts.Target)]
+		if to == "" {
+			continue
+		}
+		data = bytes.ReplaceAll(data, []byte(rw.From), []byte(to))
+		if expanded := target.ExpandPath(opts.Target, opts.Env, rw.From); expanded != rw.From {
+			data = bytes.ReplaceAll(data, []byte(expanded), []byte(to))
+		}
+	}
+	return data
+}
+
 func selectComponents(opts Options) []manifest.Component {
 	if len(opts.Only) == 0 {
 		return opts.Manifest.Components
@@ -251,6 +324,15 @@ func selectComponents(opts Options) []manifest.Component {
 		}
 	}
 	return out
+}
+
+// relativize rewrites a path under the home directory as "~/...", so bundles
+// never carry a machine-specific absolute path or the user's account name.
+func relativize(env inventory.Environment, p string) string {
+	if env.Home != "" && strings.HasPrefix(p, env.Home) {
+		return "~" + strings.TrimPrefix(p, env.Home)
+	}
+	return p
 }
 
 func zipDir(srcDir, zipPath string) (err error) {
@@ -293,4 +375,34 @@ func zipDir(srcDir, zipPath string) (err error) {
 		return walkErr
 	}
 	return zw.Close()
+}
+
+// ReadMetadata opens a bundle archive and returns its manifest.
+func ReadMetadata(zipPath string) (*Metadata, error) {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, fmt.Errorf("bundle: open %s: %w", zipPath, err)
+	}
+	defer zr.Close()
+
+	for _, f := range zr.File {
+		if filepath.ToSlash(f.Name) != MetadataFile {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer rc.Close()
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return nil, err
+		}
+		var meta Metadata
+		if err := yaml.Unmarshal(data, &meta); err != nil {
+			return nil, fmt.Errorf("bundle: parse %s: %w", MetadataFile, err)
+		}
+		return &meta, nil
+	}
+	return nil, fmt.Errorf("bundle: %s not found in %s", MetadataFile, zipPath)
 }

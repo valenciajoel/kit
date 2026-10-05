@@ -81,6 +81,19 @@ func (m *Manifest) Validate() error {
 				return fmt.Errorf("component %q install[%s] has unknown method %q", c.ID, tgt, ins.Method)
 			}
 		}
+		for j, rw := range c.Rewrites {
+			if rw.From == "" {
+				return fmt.Errorf("component %q rewrite[%d] is missing from", c.ID, j)
+			}
+			if len(rw.To) == 0 {
+				return fmt.Errorf("component %q rewrite[%d] has no destinations", c.ID, j)
+			}
+			for tgt := range rw.To {
+				if !validTargets[tgt] {
+					return fmt.Errorf("component %q rewrite[%d] has unknown target %q", c.ID, j, tgt)
+				}
+			}
+		}
 	}
 	return nil
 }

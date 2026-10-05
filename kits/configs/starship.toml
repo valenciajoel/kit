@@ -1,0 +1,12 @@
+# Minimal seed Starship prompt configuration shipped with kit.
+add_newline = true
+
+format = "[$directory$git_branch]($style)$character"
+
+[character]
+success_symbol = "[❯](bold cyan)"
+error_symbol = "[✗](bold cyan)"
+
+[directory]
+truncation_length = 2
+truncation_symbol = "…/"
