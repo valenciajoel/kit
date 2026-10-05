@@ -77,8 +77,8 @@ components:
 - [x] **T4** `internal/target`: three targets, config-root + path expansion (`~`, `%APPDATA%`). — `linux` target resolved
 - [x] **T5** `internal/tui`: Bubbletea dashboard + inventory screen, rescan keybind. — compiles; interactive run pending manual check
 - [x] **T6** `cmd/kit`: CLI wiring (`detect`, `export`, `install`) + TUI default. — `kit detect` prints all 10 components
-- [ ] **T7** `internal/bundle`: capture configs, resolve paths, secret sanitization, zip. (pending)
-- [ ] **T8** `internal/install`: strategy interface + apt/mise/npm/script methods + dry-run. (pending)
+- [x] **T7** `internal/bundle`: capture configs, resolve paths, secret sanitization, zip. — 103 files, 1 real secret redacted, paths relativized to `~`
+- [x] **T8** `internal/install`: strategy interface + apt/mise/npm/script methods + dry-run. — plan builds 9 run + 1 skip for linux
 - [ ] **T9** `kits/`: seed configs (zellij, alacritty, starship, mise, opencode sanitized) + full manifest. (pending)
 - [ ] **T10** Tests (`go test ./...`), README, build scripts for linux/windows. (pending)
 
@@ -117,3 +117,11 @@ components:
   **Repo**: initialized (`main`) and published public at https://github.com/valenciajoel/kit.
   Work-unit commits are now in effect; `AGENTS.md` + `.gitignore` added with a hard
   "never expose secrets" rule and a pre-commit secret check.
+- 2026-10-05: Slice 2 (T7–T8) implemented inline. `go build`, `go vet`, `go test ./...`
+  pass. `kit export` produced a 103-file, 230 KB zip and redacted a real
+  `CONTEXT7_API_KEY` to `${REDACTED}`; `kit install` emits a 9-run/1-skip plan.
+  **Security fix**: the first suffix heuristic (`_key`/`-key`) false-matched
+  `topic_key` and the npm package `path-key`, corrupting `package-lock.json` by
+  replacing whole objects. Narrowed to specific substrings + precise suffixes; added
+  regression tests. **Privacy fix**: bundle metadata no longer records hostname or
+  absolute paths — sources are rewritten to `~/...`.

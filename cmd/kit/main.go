@@ -3,12 +3,16 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/valenciajoel/kit/internal/bundle"
+	"github.com/valenciajoel/kit/internal/install"
 	"github.com/valenciajoel/kit/internal/inventory"
 	"github.com/valenciajoel/kit/internal/manifest"
 	"github.com/valenciajoel/kit/internal/target"
@@ -16,7 +20,7 @@ import (
 	"github.com/valenciajoel/kit/kits"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	m, err := manifest.Load(kits.FS, "kit.yaml")
@@ -33,12 +37,14 @@ func main() {
 		switch args[0] {
 		case "detect":
 			cmdDetect(m, env, tgt)
+		case "export":
+			cmdExport(m, env, tgt, args[1:])
+		case "install":
+			cmdInstall(m, tgt, args[1:])
 		case "version", "--version", "-v":
 			fmt.Println("kit " + version)
 		case "help", "--help", "-h":
 			usage()
-		case "export", "install":
-			fmt.Printf("kit %s: not implemented yet (planned T7/T8)\n", args[0])
 		default:
 			fmt.Fprintf(os.Stderr, "kit: unknown command %q\n\n", args[0])
 			usage()
@@ -75,13 +81,89 @@ func cmdDetect(m *manifest.Manifest, env inventory.Environment, tgt target.Targe
 	}
 }
 
+func cmdExport(m *manifest.Manifest, env inventory.Environment, tgt target.Target, args []string) {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	out := fs.String("out", bundle.DefaultOutDir, "output directory for the bundle")
+	dry := fs.Bool("dry-run", false, "report captured files and redactions without writing")
+	_ = fs.Parse(args)
+
+	res, err := bundle.Export(bundle.Options{
+		Manifest: m,
+		Env:      env,
+		Target:   tgt,
+		OutDir:   *out,
+		DryRun:   *dry,
+		Only:     fs.Args(),
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit export: "+err.Error())
+		os.Exit(1)
+	}
+
+	if *dry {
+		fmt.Println("kit export (dry-run) — nothing written")
+	} else {
+		fmt.Println("kit export → " + res.BundlePath)
+	}
+	fmt.Printf("captured %d file(s), %d redaction(s)\n", len(res.Captured), len(res.Redactions))
+	for _, c := range res.Captured {
+		note := ""
+		if n := len(c.Redactions); n > 0 {
+			note = fmt.Sprintf("  [%d redacted]", n)
+		}
+		fmt.Printf("  %-42s %s%s\n", c.ArchivePath, humanBytes(c.Bytes), note)
+	}
+	if len(res.Redactions) > 0 {
+		fmt.Println("redactions:")
+		for _, r := range res.Redactions {
+			loc := r.File
+			if r.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", r.File, r.Line)
+			}
+			fmt.Printf("  %-58s %s\n", loc, r.Key)
+		}
+	}
+	for _, w := range res.Warnings {
+		fmt.Println("  warning: " + w)
+	}
+}
+
+func cmdInstall(m *manifest.Manifest, tgt target.Target, args []string) {
+	fs := flag.NewFlagSet("install", flag.ExitOnError)
+	apply := fs.Bool("apply", false, "execute the plan instead of only printing it")
+	_ = fs.Parse(args)
+
+	plan := install.BuildPlan(m, tgt, fs.Args())
+	runner := install.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+	if err := install.Execute(context.Background(), plan, runner, *apply, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "kit install: "+err.Error())
+		os.Exit(1)
+	}
+}
+
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}
+
 func usage() {
 	fmt.Println(`kit — cross-platform terminal kit manager
 
 Usage:
-  kit            launch the TUI
-  kit detect     print environment and component status
-  kit export     export the kit as a portable bundle (planned)
-  kit install    install the kit on the current target (planned)
-  kit version    print version`)
+  kit                    launch the TUI
+  kit detect             print environment and component status
+  kit export [flags] [id...]
+                         export the kit as a secret-sanitized bundle
+        --out DIR        output directory (default "bundles")
+        --dry-run        report captured files and redactions, write nothing
+  kit install [flags] [id...]
+                         print (and optionally run) the install plan
+        --apply          execute the plan; without it this is a dry-run
+  kit version            print version`)
 }

@@ -7,6 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/valenciajoel/kit/internal/bundle"
+	"github.com/valenciajoel/kit/internal/install"
 	"github.com/valenciajoel/kit/internal/inventory"
 	"github.com/valenciajoel/kit/internal/manifest"
 	"github.com/valenciajoel/kit/internal/target"
@@ -33,7 +35,14 @@ type Model struct {
 	height int
 	tab    tab
 	status string
+	output string
 	ready  bool
+}
+
+// actionResultMsg carries the text produced by an asynchronous action.
+type actionResultMsg struct {
+	text   string
+	status string
 }
 
 // New builds the root model and performs an initial inventory scan.
@@ -53,6 +62,10 @@ func (model Model) Init() tea.Cmd { return nil }
 // Update implements tea.Model.
 func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case actionResultMsg:
+		model.output = msg.text
+		model.status = msg.status
+		return model, nil
 	case tea.WindowSizeMsg:
 		model.width, model.height = msg.Width, msg.Height
 		model.ready = true
@@ -67,11 +80,37 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			model.tools = inventory.DetectTools(model.m, string(model.tgt))
 			model.status = "rescan complete"
+		case "e":
+			model.tab = tabActions
+			model.output = "exporting…"
+			return model, model.exportCmd
+		case "i":
+			model.tab = tabActions
+			model.output = install.Summary(install.BuildPlan(model.m, model.tgt, nil))
+			model.status = "install plan (dry-run)"
 		case "esc":
 			model.tab = tabDashboard
 		}
 	}
 	return model, nil
+}
+
+// exportCmd captures the kit in the background and reports the result.
+func (model Model) exportCmd() tea.Msg {
+	res, err := bundle.Export(bundle.Options{
+		Manifest: model.m,
+		Env:      model.env,
+		Target:   model.tgt,
+		OutDir:   bundle.DefaultOutDir,
+	})
+	if err != nil {
+		return actionResultMsg{text: "export failed: " + err.Error(), status: "export failed"}
+	}
+	text := fmt.Sprintf("exported %d file(s), %d redaction(s)\n%s", len(res.Captured), len(res.Redactions), res.BundlePath)
+	for _, w := range res.Warnings {
+		text += "\nwarning: " + w
+	}
+	return actionResultMsg{text: text, status: "export complete"}
 }
 
 // View implements tea.Model.
@@ -160,9 +199,11 @@ func (model Model) renderInventory() string {
 
 func (model Model) renderActions() string {
 	lines := []string{
-		keyStyle.Render("e") + "  export kit bundle    " + subtleStyle.Render("(planned: T7)"),
-		keyStyle.Render("i") + "  install on target    " + subtleStyle.Render("(planned: T8)"),
-		keyStyle.Render("d") + "  dry-run evaluation   " + subtleStyle.Render("(planned: T8)"),
+		keyStyle.Render("e") + "  export kit bundle   " + subtleStyle.Render("(writes to "+bundle.DefaultOutDir+"/)"),
+		keyStyle.Render("i") + "  install plan       " + subtleStyle.Render("(dry-run)"),
+	}
+	if model.output != "" {
+		lines = append(lines, "", model.output)
 	}
 	return boxStyle.Render(strings.Join(lines, "\n"))
 }
@@ -170,6 +211,8 @@ func (model Model) renderActions() string {
 func (model Model) renderFooter() string {
 	items := []string{
 		keyStyle.Render("tab/←/→") + subtleStyle.Render(" switch"),
+		keyStyle.Render("e") + subtleStyle.Render(" export"),
+		keyStyle.Render("i") + subtleStyle.Render(" install"),
 		keyStyle.Render("r") + subtleStyle.Render(" rescan"),
 		keyStyle.Render("q") + subtleStyle.Render(" quit"),
 	}
