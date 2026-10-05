@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,9 +23,27 @@ import (
 )
 
 // version is overridable at build time via -ldflags "-X main.version=...".
-var version = "0.3.0"
+// It stays "dev" for `go install`, where no ldflags are applied.
+var version = "dev"
+
+// currentVersion returns the ldflags-injected version when present, otherwise
+// the module version reported by the Go toolchain (so `go install` builds
+// report their real version instead of "dev").
+func currentVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := info.Main.Version; v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return version
+}
 
 func main() {
+	version = currentVersion()
+
 	m, err := manifest.Load(kits.FS, "kit.yaml")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kit: "+err.Error())
