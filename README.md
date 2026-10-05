@@ -13,9 +13,27 @@ Early but functional. `detect`, `export`, `install`, and `restore` work end to
 end on Linux; the `wsl` and `windows` targets are modelled and used for path
 resolution, with real-machine testing still pending.
 
+## Install
+
+Prebuilt binaries (Linux and macOS):
+
+    curl -fsSL https://raw.githubusercontent.com/valenciajoel/kit/main/install.sh | sh
+
+Windows: download `kit-windows-amd64.exe` from the
+[releases page](https://github.com/valenciajoel/kit/releases).
+
+With a Go toolchain (1.26+):
+
+    go install github.com/valenciajoel/kit/cmd/kit@latest
+
+From source:
+
+    git clone https://github.com/valenciajoel/kit
+    cd kit && make build     # -> bin/kit
+
 ## Requirements
 
-- Go 1.26 or newer.
+- Go 1.26 or newer only if you build from source; prebuilt binaries need nothing.
 
 ## Build and run
 
