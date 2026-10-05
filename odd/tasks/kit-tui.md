@@ -114,5 +114,6 @@ components:
   all pass. Detection reported 9/10 components present on the host.
   **Discovered**: `opencode` resolves to an `npx` cache path, i.e. it is not installed
   globally — T8's npm method must use `npm i -g opencode-ai`, not a bare npx invocation.
-  **Pending decision**: the project is not a git repository yet; work-unit commits are
-  on hold until the user confirms `git init` + remote.
+  **Repo**: initialized (`main`) and published public at https://github.com/valenciajoel/kit.
+  Work-unit commits are now in effect; `AGENTS.md` + `.gitignore` added with a hard
+  "never expose secrets" rule and a pre-commit secret check.
