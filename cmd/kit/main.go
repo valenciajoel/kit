@@ -81,10 +81,41 @@ func main() {
 	}
 
 	program := tea.NewProgram(tui.New(m, env, tgt), tea.WithAltScreen())
-	if _, err := program.Run(); err != nil {
+	final, err := program.Run()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "kit: "+err.Error())
 		os.Exit(1)
 	}
+	if fm, ok := final.(tui.Model); ok && fm.Requested() {
+		only := fm.Selected()
+		fmt.Printf("kit setup (target=%s, applying %d selected component(s))\n", tgt, len(only))
+		if err := runSetupSelection(m, env, tgt, only); err != nil {
+			fmt.Fprintln(os.Stderr, "kit: "+err.Error())
+			os.Exit(1)
+		}
+	}
+}
+
+// runSetupSelection installs the tools and writes the configs for the chosen
+// components. It runs after the TUI exits so subprocesses get a normal terminal.
+func runSetupSelection(m *manifest.Manifest, env inventory.Environment, tgt target.Target, only []string) error {
+	install.AugmentPath(env)
+	plan := install.BuildPlan(m, tgt, only)
+	runner := install.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+	if err := install.Execute(context.Background(), plan, runner, true, os.Stdout); err != nil {
+		return err
+	}
+	res, err := restore.Restore(restore.Options{
+		Manifest: m,
+		Env:      env,
+		Target:   tgt,
+		Only:     only,
+	})
+	if err != nil {
+		return err
+	}
+	printRestoreResult(res)
+	return nil
 }
 
 func cmdDetect(m *manifest.Manifest, env inventory.Environment, tgt target.Target) {

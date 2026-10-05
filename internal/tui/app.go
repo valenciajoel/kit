@@ -19,24 +19,30 @@ type tab int
 const (
 	tabDashboard tab = iota
 	tabInventory
+	tabInstall
 	tabActions
 	tabCount
 )
 
-var tabNames = []string{"Dashboard", "Inventory", "Actions"}
+var tabNames = []string{"Dashboard", "Inventory", "Install", "Actions"}
 
 // Model is the root Bubbletea model.
 type Model struct {
-	m      *manifest.Manifest
-	env    inventory.Environment
-	tgt    target.Target
-	tools  []inventory.ToolStatus
-	width  int
-	height int
-	tab    tab
-	status string
-	output string
-	ready  bool
+	m          *manifest.Manifest
+	env        inventory.Environment
+	tgt        target.Target
+	tools      []inventory.ToolStatus
+	components []string
+	selected   map[string]bool
+	cursor     int
+	presetIdx  int
+	requested  bool
+	width      int
+	height     int
+	tab        tab
+	status     string
+	output     string
+	ready      bool
 }
 
 // actionResultMsg carries the text produced by an asynchronous action.
@@ -47,12 +53,21 @@ type actionResultMsg struct {
 
 // New builds the root model and performs an initial inventory scan.
 func New(m *manifest.Manifest, env inventory.Environment, tgt target.Target) Model {
+	components := make([]string, 0, len(m.Components))
+	selected := make(map[string]bool, len(m.Components))
+	for _, c := range m.Components {
+		components = append(components, c.ID)
+		selected[c.ID] = true
+	}
 	return Model{
-		m:      m,
-		env:    env,
-		tgt:    tgt,
-		tools:  inventory.DetectTools(m, string(tgt)),
-		status: "loaded manifest with " + fmt.Sprintf("%d", len(m.Components)) + " components",
+		m:          m,
+		env:        env,
+		tgt:        tgt,
+		tools:      inventory.DetectTools(m, string(tgt)),
+		components: components,
+		selected:   selected,
+		presetIdx:  -1,
+		status:     fmt.Sprintf("loaded manifest with %d components", len(m.Components)),
 	}
 }
 
@@ -70,9 +85,13 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		model.width, model.height = msg.Width, msg.Height
 		model.ready = true
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
+		if msg.String() == "q" || msg.String() == "ctrl+c" {
 			return model, tea.Quit
+		}
+		if model.tab == tabInstall {
+			return model.updateInstall(msg)
+		}
+		switch msg.String() {
 		case "tab", "right", "l":
 			model.tab = (model.tab + 1) % tabCount
 		case "shift+tab", "left", "h":
@@ -93,6 +112,105 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return model, nil
+}
+
+// updateInstall handles keys on the Install tab: navigate, toggle, presets.
+func (model Model) updateInstall(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if model.cursor > 0 {
+			model.cursor--
+		}
+	case "down", "j":
+		if model.cursor < len(model.components)-1 {
+			model.cursor++
+		}
+	case " ", "x":
+		id := model.components[model.cursor]
+		model.selected[id] = !model.selected[id]
+		model.presetIdx = -1
+	case "a":
+		for _, id := range model.components {
+			model.selected[id] = true
+		}
+		model.presetIdx = -1
+	case "n":
+		for _, id := range model.components {
+			model.selected[id] = false
+		}
+		model.presetIdx = -1
+	case "p":
+		model.cyclePreset(1)
+	case "P":
+		model.cyclePreset(-1)
+	case "enter":
+		if model.countSelected() == 0 {
+			model.status = "select at least one component"
+			return model, nil
+		}
+		model.requested = true
+		return model, tea.Quit
+	case "tab", "right", "l":
+		model.tab = (model.tab + 1) % tabCount
+	case "shift+tab", "left", "h":
+		model.tab = (model.tab + tabCount - 1) % tabCount
+	case "esc":
+		model.tab = tabDashboard
+	}
+	return model, nil
+}
+
+// Selected returns the checked component ids, in manifest order.
+func (model Model) Selected() []string {
+	out := make([]string, 0, len(model.components))
+	for _, id := range model.components {
+		if model.selected[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// Requested reports whether the user asked to install the current selection.
+func (model Model) Requested() bool { return model.requested }
+
+func (model Model) countSelected() int {
+	n := 0
+	for _, id := range model.components {
+		if model.selected[id] {
+			n++
+		}
+	}
+	return n
+}
+
+// cyclePreset replaces the selection with the next (or previous) preset.
+func (model *Model) cyclePreset(dir int) {
+	names := model.m.PresetNames()
+	if len(names) == 0 {
+		return
+	}
+	model.presetIdx = ((model.presetIdx+dir)%len(names) + len(names)) % len(names)
+	ids, err := model.m.ResolvePreset(names[model.presetIdx])
+	if err != nil {
+		return
+	}
+	for k := range model.selected {
+		model.selected[k] = false
+	}
+	for _, id := range ids {
+		model.selected[id] = true
+	}
+	model.status = "preset: " + names[model.presetIdx]
+}
+
+// presetName returns the preset currently applied, or "" for a custom selection.
+func (model Model) presetName() string {
+	names := model.m.PresetNames()
+	if model.presetIdx < 0 || model.presetIdx >= len(names) {
+		return ""
+	}
+	return names[model.presetIdx]
 }
 
 // exportCmd captures the kit in the background and reports the result.
@@ -130,6 +248,8 @@ func (model Model) View() string {
 		b.WriteString(model.renderDashboard())
 	case tabInventory:
 		b.WriteString(model.renderInventory())
+	case tabInstall:
+		b.WriteString(model.renderInstall())
 	case tabActions:
 		b.WriteString(model.renderActions())
 	}
@@ -194,6 +314,37 @@ func (model Model) renderInventory() string {
 		}
 		b.WriteString(fmt.Sprintf("%s %-24s %-14s %s\n", mark, t.Name, subtleStyle.Render(t.Manager), version))
 	}
+	return boxStyle.Render(strings.TrimRight(b.String(), "\n"))
+}
+
+func (model Model) renderInstall() string {
+	var b strings.Builder
+	for i, id := range model.components {
+		c, ok := model.m.Find(id)
+		name := id
+		if ok {
+			name = c.Name
+		}
+		box, style := "[ ]", missingStyle
+		if model.selected[id] {
+			box, style = "[x]", okStyle
+		}
+		cursor := "  "
+		if i == model.cursor {
+			cursor = keyStyle.Render("> ")
+		}
+		b.WriteString(fmt.Sprintf("%s%s %-26s %s\n", cursor, style.Render(box), name, subtleStyle.Render(id)))
+	}
+
+	b.WriteString("\n")
+	if name := model.presetName(); name != "" {
+		b.WriteString(keyStyle.Render("preset: ") + name)
+	} else {
+		b.WriteString(subtleStyle.Render("preset: custom (p cycles presets)"))
+	}
+	b.WriteString("   " + okStyle.Render(fmt.Sprintf("%d selected", model.countSelected())))
+	b.WriteString("\n\n")
+	b.WriteString(subtleStyle.Render("space toggle · a all · n none · p preset · enter install & quit"))
 	return boxStyle.Render(strings.TrimRight(b.String(), "\n"))
 }
 

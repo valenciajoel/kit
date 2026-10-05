@@ -55,7 +55,7 @@ Or with the Makefile:
 
 ## Usage
 
-    kit            launch the TUI (Dashboard / Inventory / Actions)
+    kit            launch the TUI (Dashboard / Inventory / Install / Actions)
     kit detect     print OS, arch, distro, WSL flag, and per-component status
     kit setup      install tools AND write configs in one run (dry-run by default)
                      --apply         execute; without it this is a dry-run
@@ -112,6 +112,10 @@ explicit list, on `setup`, `install`, and `export`:
 
 Presets live in `kits/kit.yaml` (`minimal`, `terminal`, `languages`, `editor`,
 `ai`, `full`). An empty selection means everything.
+
+The TUI's **Install** tab does the same interactively: toggle components with
+space, cycle presets with `p`, and press enter to install the selection (the
+TUI exits and the install runs with a normal terminal so prompts work).
 
 ### Portability
 
