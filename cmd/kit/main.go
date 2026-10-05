@@ -61,7 +61,7 @@ func main() {
 		case "export":
 			cmdExport(m, env, tgt, args[1:])
 		case "install":
-			cmdInstall(m, tgt, args[1:])
+			cmdInstall(m, env, tgt, args[1:])
 		case "restore":
 			cmdRestore(m, env, tgt, args[1:])
 		case "setup":
@@ -153,13 +153,26 @@ func cmdExport(m *manifest.Manifest, env inventory.Environment, tgt target.Targe
 	}
 }
 
-func cmdInstall(m *manifest.Manifest, tgt target.Target, args []string) {
+func cmdInstall(m *manifest.Manifest, env inventory.Environment, tgt target.Target, args []string) {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	apply := fs.Bool("apply", false, "execute the plan instead of only printing it")
+	interactive := fs.Bool("interactive", false, "accept each component one by one")
+	fs.BoolVar(interactive, "i", false, "shorthand for --interactive")
 	_ = fs.Parse(args)
 
 	plan := install.BuildPlan(m, tgt, fs.Args())
 	runner := install.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+
+	if *interactive {
+		install.AugmentPath(env)
+		prompt := install.NewPrompter(os.Stdin, os.Stdout)
+		if err := install.RunInteractive(context.Background(), plan, runner, prompt); err != nil {
+			fmt.Fprintln(os.Stderr, "kit install: "+err.Error())
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := install.Execute(context.Background(), plan, runner, *apply, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "kit install: "+err.Error())
 		os.Exit(1)
@@ -201,23 +214,17 @@ func cmdRestore(m *manifest.Manifest, env inventory.Environment, tgt target.Targ
 	} else {
 		fmt.Printf("kit restore (target=%s)\n", rt)
 	}
-	fmt.Printf("wrote %d file(s), skipped %d\n", len(res.Written), len(res.Skipped))
-	for _, p := range res.Written {
-		fmt.Println("  + " + p)
-	}
-	for _, p := range res.Skipped {
-		fmt.Println("  = " + p)
-	}
-	for _, w := range res.Warnings {
-		fmt.Println("  warning: " + w)
-	}
+	printRestoreResult(res)
 }
 
 // cmdSetup installs the tools and writes the configs in one run. It is a
-// dry-run by default; pass --apply to actually change the machine.
+// dry-run by default; pass --apply to execute, or --interactive (-i) to accept
+// each component one by one.
 func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target, args []string) {
 	fs := flag.NewFlagSet("setup", flag.ExitOnError)
 	apply := fs.Bool("apply", false, "execute the setup instead of only printing it")
+	interactive := fs.Bool("interactive", false, "accept tools and configs one by one")
+	fs.BoolVar(interactive, "i", false, "shorthand for --interactive")
 	from := fs.String("from", "", "bundle zip to restore configs from (default: seed configs)")
 	force := fs.Bool("force", false, "overwrite existing config files")
 	targetName := fs.String("target", string(tgt), "destination target: linux|wsl|windows")
@@ -231,6 +238,47 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 		os.Exit(2)
 	}
 
+	runner := install.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+
+	if *interactive {
+		fmt.Printf("kit setup (target=%s, interactive)\n", rt)
+		prompt := install.NewPrompter(os.Stdin, os.Stdout)
+		install.AugmentPath(env)
+
+		if !*skipTools {
+			fmt.Println("\n== tools ==")
+			plan := install.BuildPlan(m, rt, nil)
+			if err := install.RunInteractive(context.Background(), plan, runner, prompt); err != nil {
+				fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
+				os.Exit(1)
+			}
+		}
+
+		if !*skipConfigs {
+			fmt.Println("\n== configs ==")
+			if *from == "" {
+				fmt.Println("(no bundle given: seed configs)")
+			}
+			if prompt.Yes("write config files? [y/N] ") {
+				res, err := restore.Restore(restore.Options{
+					BundlePath: *from,
+					Manifest:   m,
+					Env:        env,
+					Target:     rt,
+					Force:      *force,
+				})
+				if err != nil {
+					fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
+					os.Exit(1)
+				}
+				printRestoreResult(res)
+			} else {
+				fmt.Println("configs skipped")
+			}
+		}
+		return
+	}
+
 	mode := "dry-run — nothing will be changed"
 	if *apply {
 		mode = "APPLY"
@@ -240,7 +288,6 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 	if !*skipTools {
 		fmt.Println("\n== tools ==")
 		plan := install.BuildPlan(m, rt, nil)
-		runner := install.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
 		if *apply {
 			install.AugmentPath(env)
 		}
@@ -267,20 +314,24 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 			fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
 			os.Exit(1)
 		}
-		fmt.Printf("wrote %d file(s), skipped %d\n", len(res.Written), len(res.Skipped))
-		for _, p := range res.Written {
-			fmt.Println("  + " + p)
-		}
-		for _, p := range res.Skipped {
-			fmt.Println("  = " + p)
-		}
-		for _, w := range res.Warnings {
-			fmt.Println("  warning: " + w)
-		}
+		printRestoreResult(res)
 	}
 
 	if !*apply {
 		fmt.Println("\n(dry-run; re-run with --apply to execute)")
+	}
+}
+
+func printRestoreResult(res *restore.Result) {
+	fmt.Printf("wrote %d file(s), skipped %d\n", len(res.Written), len(res.Skipped))
+	for _, p := range res.Written {
+		fmt.Println("  + " + p)
+	}
+	for _, p := range res.Skipped {
+		fmt.Println("  = " + p)
+	}
+	for _, w := range res.Warnings {
+		fmt.Println("  warning: " + w)
 	}
 }
 
@@ -308,6 +359,7 @@ Usage:
   kit install [flags] [id...]
                          print (and optionally run) the install plan
         --apply          execute the plan; without it this is a dry-run
+        -i, --interactive  accept each component one by one
   kit restore [flags] <bundle.zip>
                          apply a bundle's configs to this machine
         --dry-run        report destinations without writing
@@ -315,6 +367,7 @@ Usage:
         --target T       destination target: linux|wsl|windows
   kit setup [flags]      install tools and write configs in one run
         --apply          execute (default is a dry-run)
+        -i, --interactive  guided: accept tools and configs one by one
         --from FILE      bundle zip to restore configs from (default: seeds)
         --force          overwrite existing config files
         --skip-tools     do not install tools

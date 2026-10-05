@@ -59,6 +59,7 @@ Or with the Makefile:
     kit detect     print OS, arch, distro, WSL flag, and per-component status
     kit setup      install tools AND write configs in one run (dry-run by default)
                      --apply         execute; without it this is a dry-run
+                     -i, --interactive  guided: accept each component one by one
                      --from FILE     bundle zip to restore configs from (default: seeds)
                      --force         overwrite existing config files
                      --skip-tools    do not install tools
@@ -69,6 +70,7 @@ Or with the Makefile:
                      --dry-run       report captured files and redactions, write nothing
     kit install    print (and optionally run) the tool install plan
                      --apply         execute the plan; without it this is a dry-run
+                     -i, --interactive  accept each component one by one
     kit restore    apply a bundle's configs to this machine
                      --dry-run       report destinations without writing
                      --force         overwrite existing files
