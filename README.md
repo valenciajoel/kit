@@ -57,15 +57,22 @@ Or with the Makefile:
 
     kit            launch the TUI (Dashboard / Inventory / Actions)
     kit detect     print OS, arch, distro, WSL flag, and per-component status
+    kit setup      install tools AND write configs in one run (dry-run by default)
+                     --apply         execute; without it this is a dry-run
+                     --from FILE     bundle zip to restore configs from (default: seeds)
+                     --force         overwrite existing config files
+                     --skip-tools    do not install tools
+                     --skip-configs  do not write config files
+                     --target T      destination target: linux|wsl|windows
     kit export     capture the kit as a secret-sanitized bundle (zip)
-                     --out DIR     output directory (default "bundles")
-                     --dry-run     report captured files and redactions, write nothing
-    kit install    print (and optionally run) the install plan
-                     --apply       execute the plan; without it this is a dry-run
+                     --out DIR       output directory (default "bundles")
+                     --dry-run       report captured files and redactions, write nothing
+    kit install    print (and optionally run) the tool install plan
+                     --apply         execute the plan; without it this is a dry-run
     kit restore    apply a bundle's configs to this machine
-                     --dry-run     report destinations without writing
-                     --force       overwrite existing files
-                     --target T    destination target: linux|wsl|windows
+                     --dry-run       report destinations without writing
+                     --force         overwrite existing files
+                     --target T      destination target: linux|wsl|windows
 
 ## How it works
 

@@ -100,6 +100,34 @@ func TestRestoreWindowsDestination(t *testing.T) {
 	}
 }
 
+func TestSeedsWritesBaseline(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	m := &manifest.Manifest{Version: 1, Components: []manifest.Component{{
+		ID:   "starship",
+		Name: "Starship",
+		Kind: "shell-prompt",
+		Configs: []manifest.ConfigSpec{{
+			Src:  "~/.config/starship.toml",
+			Dest: map[string]string{"linux": "~/.config/starship.toml"},
+		}},
+		Seed: "configs/starship.toml",
+	}}}
+
+	res, err := Seeds(Options{
+		Manifest: m,
+		Env:      inventory.Environment{OS: inventory.Linux, Home: home},
+		Target:   target.Linux,
+		DryRun:   true,
+	})
+	if err != nil {
+		t.Fatalf("seeds: %v", err)
+	}
+	want := filepath.Join(home, ".config", "starship.toml") + " (seed)"
+	if len(res.Written) != 1 || res.Written[0] != want {
+		t.Fatalf("written = %v, want [%s]", res.Written, want)
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

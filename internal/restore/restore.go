@@ -35,28 +35,48 @@ type Result struct {
 	Warnings []string
 }
 
-// Restore writes every captured config to its target destination. Existing
-// files are left untouched unless Force is set.
+// Restore writes every captured config to its target destination. When
+// BundlePath is empty it only writes seed configs. Existing files are left
+// untouched unless Force is set.
 func Restore(opts Options) (*Result, error) {
-	meta, err := bundle.ReadMetadata(opts.BundlePath)
-	if err != nil {
-		return nil, err
-	}
-
-	zr, err := zip.OpenReader(opts.BundlePath)
-	if err != nil {
-		return nil, fmt.Errorf("restore: open %s: %w", opts.BundlePath, err)
-	}
-	defer zr.Close()
-
-	index := make(map[string]*zip.File, len(zr.File))
-	for _, f := range zr.File {
-		index[filepath.ToSlash(f.Name)] = f
-	}
-
 	res := &Result{}
 	covered := make(map[string]bool)
 
+	if opts.BundlePath != "" {
+		meta, err := bundle.ReadMetadata(opts.BundlePath)
+		if err != nil {
+			return nil, err
+		}
+		zr, err := zip.OpenReader(opts.BundlePath)
+		if err != nil {
+			return nil, fmt.Errorf("restore: open %s: %w", opts.BundlePath, err)
+		}
+		defer zr.Close()
+
+		index := make(map[string]*zip.File, len(zr.File))
+		for _, f := range zr.File {
+			index[filepath.ToSlash(f.Name)] = f
+		}
+		applyBundle(opts, meta, index, covered, res)
+	}
+
+	if opts.Manifest != nil {
+		restoreSeeds(opts, covered, res)
+	}
+
+	sort.Strings(res.Written)
+	sort.Strings(res.Skipped)
+	return res, nil
+}
+
+// Seeds writes baseline configs for every component that declares one. It is
+// the no-bundle path used by `kit setup` on a machine with nothing exported yet.
+func Seeds(opts Options) (*Result, error) {
+	opts.BundlePath = ""
+	return Restore(opts)
+}
+
+func applyBundle(opts Options, meta *bundle.Metadata, index map[string]*zip.File, covered map[string]bool, res *Result) {
 	for _, c := range meta.Captured {
 		covered[c.ComponentID] = true
 
@@ -94,14 +114,6 @@ func Restore(opts Options) (*Result, error) {
 		}
 		res.Written = append(res.Written, dest)
 	}
-
-	if opts.Manifest != nil {
-		restoreSeeds(opts, covered, res)
-	}
-
-	sort.Strings(res.Written)
-	sort.Strings(res.Skipped)
-	return res, nil
 }
 
 // restoreSeeds writes a baseline config for components the bundle never

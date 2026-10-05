@@ -64,6 +64,8 @@ func main() {
 			cmdInstall(m, tgt, args[1:])
 		case "restore":
 			cmdRestore(m, env, tgt, args[1:])
+		case "setup":
+			cmdSetup(m, env, tgt, args[1:])
 		case "version", "--version", "-v":
 			fmt.Println("kit " + version)
 		case "help", "--help", "-h":
@@ -211,6 +213,77 @@ func cmdRestore(m *manifest.Manifest, env inventory.Environment, tgt target.Targ
 	}
 }
 
+// cmdSetup installs the tools and writes the configs in one run. It is a
+// dry-run by default; pass --apply to actually change the machine.
+func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target, args []string) {
+	fs := flag.NewFlagSet("setup", flag.ExitOnError)
+	apply := fs.Bool("apply", false, "execute the setup instead of only printing it")
+	from := fs.String("from", "", "bundle zip to restore configs from (default: seed configs)")
+	force := fs.Bool("force", false, "overwrite existing config files")
+	targetName := fs.String("target", string(tgt), "destination target: linux|wsl|windows")
+	skipTools := fs.Bool("skip-tools", false, "do not install tools")
+	skipConfigs := fs.Bool("skip-configs", false, "do not write config files")
+	_ = fs.Parse(args)
+
+	rt := target.Target(*targetName)
+	if !rt.Valid() {
+		fmt.Fprintf(os.Stderr, "kit setup: invalid target %q\n", *targetName)
+		os.Exit(2)
+	}
+
+	mode := "dry-run — nothing will be changed"
+	if *apply {
+		mode = "APPLY"
+	}
+	fmt.Printf("kit setup (target=%s, %s)\n", rt, mode)
+
+	if !*skipTools {
+		fmt.Println("\n== tools ==")
+		plan := install.BuildPlan(m, rt, nil)
+		runner := install.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+		if *apply {
+			install.AugmentPath(env)
+		}
+		if err := install.Execute(context.Background(), plan, runner, *apply, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
+			os.Exit(1)
+		}
+	}
+
+	if !*skipConfigs {
+		fmt.Println("\n== configs ==")
+		if *from == "" {
+			fmt.Println("(no bundle given: writing seed configs; use --from <bundle.zip> to restore yours)")
+		}
+		res, err := restore.Restore(restore.Options{
+			BundlePath: *from,
+			Manifest:   m,
+			Env:        env,
+			Target:     rt,
+			DryRun:     !*apply,
+			Force:      *force,
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
+			os.Exit(1)
+		}
+		fmt.Printf("wrote %d file(s), skipped %d\n", len(res.Written), len(res.Skipped))
+		for _, p := range res.Written {
+			fmt.Println("  + " + p)
+		}
+		for _, p := range res.Skipped {
+			fmt.Println("  = " + p)
+		}
+		for _, w := range res.Warnings {
+			fmt.Println("  warning: " + w)
+		}
+	}
+
+	if !*apply {
+		fmt.Println("\n(dry-run; re-run with --apply to execute)")
+	}
+}
+
 func humanBytes(n int64) string {
 	switch {
 	case n >= 1<<20:
@@ -239,6 +312,13 @@ Usage:
                          apply a bundle's configs to this machine
         --dry-run        report destinations without writing
         --force          overwrite existing files
+        --target T       destination target: linux|wsl|windows
+  kit setup [flags]      install tools and write configs in one run
+        --apply          execute (default is a dry-run)
+        --from FILE      bundle zip to restore configs from (default: seeds)
+        --force          overwrite existing config files
+        --skip-tools     do not install tools
+        --skip-configs   do not write config files
         --target T       destination target: linux|wsl|windows
   kit version            print version`)
 }
