@@ -17,6 +17,10 @@ resolution, with real-machine testing still pending.
 
 Prebuilt binaries (Linux and macOS):
 
+    curl -fsSL https://valenciajoel.github.io/kit/install.sh | sh
+
+Same script straight from the repository, if you prefer:
+
     curl -fsSL https://raw.githubusercontent.com/valenciajoel/kit/main/install.sh | sh
 
 Windows: download `kit-windows-amd64.exe` from the
