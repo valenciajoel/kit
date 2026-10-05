@@ -1,0 +1,27 @@
+# Build output
+/kit
+/kit.exe
+/dist/
+/build/
+/bin/
+*.exe
+
+# Local bundles / exports (may hold machine-specific or sensitive data)
+/bundles/
+/out/
+*.kitbundle
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

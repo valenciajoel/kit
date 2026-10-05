@@ -1,0 +1,131 @@
+version: 1
+
+# Declarative definition of the terminal/dev kit.
+# install.method: apt | mise | npm | script | winget | cargo | manual
+# dest keys:     linux | wsl | windows
+components:
+  - id: zellij
+    name: Zellij
+    kind: terminal-multiplexer
+    bin: zellij
+    configs:
+      - src: "~/.config/zellij/config.kdl"
+        dest:
+          linux: "~/.config/zellij/config.kdl"
+          wsl: "~/.config/zellij/config.kdl"
+          windows: "%APPDATA%/zellij/config.kdl"
+    install:
+      linux: { method: apt, pkg: zellij }
+      wsl: { method: script, url: "https://zellij.dev/launch" }
+      windows: { method: winget, pkg: "Zellij.Zellij" }
+
+  - id: alacritty
+    name: Alacritty
+    kind: terminal-emulator
+    bin: alacritty
+    configs:
+      - src: "~/.config/alacritty/alacritty.toml"
+        dest:
+          linux: "~/.config/alacritty/alacritty.toml"
+          wsl: "~/.config/alacritty/alacritty.toml"
+          windows: "%APPDATA%/alacritty/alacritty.toml"
+    install:
+      linux: { method: apt, pkg: alacritty }
+      wsl: { method: apt, pkg: alacritty }
+      windows: { method: winget, pkg: "Alacritty.Alacritty" }
+
+  - id: nvim
+    name: Neovim (LazyVim)
+    kind: editor
+    bin: nvim
+    configs:
+      - src: "~/.config/nvim"
+        dest:
+          linux: "~/.config/nvim"
+          wsl: "~/.config/nvim"
+          windows: "%LOCALAPPDATA%/nvim"
+    install:
+      linux: { method: apt, pkg: neovim }
+      wsl: { method: apt, pkg: neovim }
+      windows: { method: winget, pkg: "Neovim.Neovim" }
+
+  - id: starship
+    name: Starship prompt
+    kind: shell-prompt
+    bin: starship
+    configs:
+      - src: "~/.config/starship.toml"
+        dest:
+          linux: "~/.config/starship.toml"
+          wsl: "~/.config/starship.toml"
+          windows: "%APPDATA%/starship.toml"
+    install:
+      linux: { method: script, url: "https://starship.rs/install.sh" }
+      wsl: { method: script, url: "https://starship.rs/install.sh" }
+      windows: { method: winget, pkg: "Starship.Starship" }
+
+  - id: mise
+    name: mise (runtime manager)
+    kind: runtime-manager
+    bin: mise
+    configs:
+      - src: "~/.config/mise/config.toml"
+        dest:
+          linux: "~/.config/mise/config.toml"
+          wsl: "~/.config/mise/config.toml"
+          windows: "%APPDATA%/mise/config.toml"
+    install:
+      linux: { method: script, url: "https://mise.run" }
+      wsl: { method: script, url: "https://mise.run" }
+      windows: { method: winget, pkg: "jdx.mise" }
+
+  - id: go
+    name: Go
+    kind: language
+    bin: go
+    install:
+      linux: { method: mise, tool: go, version: latest }
+      wsl: { method: mise, tool: go, version: latest }
+      windows: { method: mise, tool: go, version: latest }
+
+  - id: python
+    name: Python
+    kind: language
+    bin: python3
+    install:
+      linux: { method: mise, tool: python, version: latest }
+      wsl: { method: mise, tool: python, version: latest }
+      windows: { method: mise, tool: python, version: latest }
+
+  - id: node
+    name: Node.js
+    kind: language
+    bin: node
+    install:
+      linux: { method: mise, tool: node, version: latest }
+      wsl: { method: mise, tool: node, version: latest }
+      windows: { method: mise, tool: node, version: latest }
+
+  - id: opencode
+    name: opencode (AI CLI)
+    kind: ai-tool
+    bin: opencode
+    configs:
+      - src: "~/.config/opencode"
+        dest:
+          linux: "~/.config/opencode"
+          wsl: "~/.config/opencode"
+          windows: "%APPDATA%/opencode"
+    install:
+      linux: { method: npm, pkg: opencode-ai }
+      wsl: { method: npm, pkg: opencode-ai }
+      windows: { method: npm, pkg: opencode-ai }
+
+  - id: nerd-font-caskaydia
+    name: CaskaydiaMono Nerd Font
+    kind: font
+    optional: true
+    install:
+      linux: { method: manual, command: "Install CaskaydiaMono Nerd Font manually" }
+      wsl: { method: manual, command: "Install on the Windows host, not inside WSL" }
+      windows: { method: winget, pkg: "CaskaydiaMono.NerdFont" }
