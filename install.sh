@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Install the `kit` binary from GitHub releases.
 #
-#   curl -fsSL https://raw.githubusercontent.com/valenciajoel/kit/main/install.sh | sh
+#   curl -fsSL https://valenciajoel.github.io/kit/install.sh | sh
 #
 # Override the destination with INSTALL_DIR, and pin a version with KIT_VERSION.
 set -eu
