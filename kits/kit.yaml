@@ -141,4 +141,7 @@ components:
     install:
       linux: { method: manual, command: "Install CaskaydiaMono Nerd Font manually" }
       wsl: { method: manual, command: "Install on the Windows host, not inside WSL" }
-      windows: { method: winget, pkg: "CaskaydiaMono.NerdFont" }
+      # Not on winget (verified against microsoft/winget-pkgs): there is no
+      # Caskaydia/Cascadia publisher. Install from the Nerd Fonts release
+      # archive or via Scoop/Chocolatey instead.
+      windows: { method: manual, command: "Not on winget; install CaskaydiaMono from the Nerd Fonts release archive or Scoop/Chocolatey" }
