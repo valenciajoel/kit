@@ -100,6 +100,19 @@ and how to install it per target:
 
 Install methods: `apt`, `mise`, `npm`, `script`, `winget`, `cargo`, `manual`.
 
+### Selecting components
+
+Nothing has to be all-or-nothing. Choose what to install with a preset or an
+explicit list, on `setup`, `install`, and `export`:
+
+    kit presets                          # list available presets
+    kit setup --preset minimal           # a named subset
+    kit setup --components zellij,starship
+    kit export --preset terminal
+
+Presets live in `kits/kit.yaml` (`minimal`, `terminal`, `languages`, `editor`,
+`ai`, `full`). An empty selection means everything.
+
 ### Portability
 
 - `export` rewrites absolute home paths to `~` and repoints third-party imports

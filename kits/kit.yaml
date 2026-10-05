@@ -145,3 +145,35 @@ components:
       # Caskaydia/Cascadia publisher. Install from the Nerd Fonts release
       # archive or via Scoop/Chocolatey instead.
       windows: { method: manual, command: "Not on winget; install CaskaydiaMono from the Nerd Fonts release archive or Scoop/Chocolatey" }
+
+# Named component selections the user can pick with --preset.
+presets:
+  minimal:
+    - zellij
+    - alacritty
+    - starship
+    - mise
+  terminal:
+    - zellij
+    - alacritty
+    - nerd-font-caskaydia
+  languages:
+    - mise
+    - go
+    - python
+    - node
+  editor:
+    - nvim
+  ai:
+    - opencode
+  full:
+    - zellij
+    - alacritty
+    - nvim
+    - starship
+    - mise
+    - go
+    - python
+    - node
+    - opencode
+    - nerd-font-caskaydia

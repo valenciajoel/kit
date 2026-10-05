@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -95,7 +96,36 @@ func (m *Manifest) Validate() error {
 			}
 		}
 	}
+	for name, ids := range m.Presets {
+		if name == "" {
+			return fmt.Errorf("preset with empty name")
+		}
+		for _, id := range ids {
+			if !seen[id] {
+				return fmt.Errorf("preset %q references unknown component %q", name, id)
+			}
+		}
+	}
 	return nil
+}
+
+// ResolvePreset returns the component ids for a named preset.
+func (m *Manifest) ResolvePreset(name string) ([]string, error) {
+	ids, ok := m.Presets[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown preset %q (available: %s)", name, strings.Join(m.PresetNames(), ", "))
+	}
+	return ids, nil
+}
+
+// PresetNames returns every preset name, sorted for stable output.
+func (m *Manifest) PresetNames() []string {
+	names := make([]string, 0, len(m.Presets))
+	for name := range m.Presets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Find returns the component with the given id.

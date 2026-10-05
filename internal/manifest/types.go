@@ -2,8 +2,9 @@ package manifest
 
 // Manifest is the top-level declarative kit definition loaded from kit.yaml.
 type Manifest struct {
-	Version    int         `yaml:"version"`
-	Components []Component `yaml:"components"`
+	Version    int                 `yaml:"version"`
+	Components []Component         `yaml:"components"`
+	Presets    map[string][]string `yaml:"presets,omitempty"`
 }
 
 // Component describes a single tool in the kit: how to detect it, which config

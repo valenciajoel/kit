@@ -26,6 +26,21 @@ type Options struct {
 	Target     target.Target
 	DryRun     bool
 	Force      bool
+	Only       []string
+}
+
+// selected reports whether a component id passes the Only filter. An empty
+// filter selects everything.
+func (o Options) selected(id string) bool {
+	if len(o.Only) == 0 {
+		return true
+	}
+	for _, x := range o.Only {
+		if x == id {
+			return true
+		}
+	}
+	return false
 }
 
 // Result is the outcome of a restore run.
@@ -79,6 +94,9 @@ func Seeds(opts Options) (*Result, error) {
 func applyBundle(opts Options, meta *bundle.Metadata, index map[string]*zip.File, covered map[string]bool, res *Result) {
 	for _, c := range meta.Captured {
 		covered[c.ComponentID] = true
+		if !opts.selected(c.ComponentID) {
+			continue
+		}
 
 		destT := c.Dest[string(opts.Target)]
 		if destT == "" {
@@ -120,7 +138,7 @@ func applyBundle(opts Options, meta *bundle.Metadata, index map[string]*zip.File
 // captured, so a fresh machine is not left without one.
 func restoreSeeds(opts Options, covered map[string]bool, res *Result) {
 	for _, c := range opts.Manifest.Components {
-		if covered[c.ID] || c.Seed == "" || len(c.Configs) == 0 {
+		if covered[c.ID] || c.Seed == "" || len(c.Configs) == 0 || !opts.selected(c.ID) {
 			continue
 		}
 		destT := c.Configs[0].Dest[string(opts.Target)]

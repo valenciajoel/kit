@@ -66,6 +66,8 @@ func main() {
 			cmdRestore(m, env, tgt, args[1:])
 		case "setup":
 			cmdSetup(m, env, tgt, args[1:])
+		case "presets":
+			cmdPresets(m)
 		case "version", "--version", "-v":
 			fmt.Println("kit " + version)
 		case "help", "--help", "-h":
@@ -110,7 +112,15 @@ func cmdExport(m *manifest.Manifest, env inventory.Environment, tgt target.Targe
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
 	out := fs.String("out", bundle.DefaultOutDir, "output directory for the bundle")
 	dry := fs.Bool("dry-run", false, "report captured files and redactions without writing")
+	preset := fs.String("preset", "", "preset of components")
+	components := fs.String("components", "", "comma-separated component ids")
 	_ = fs.Parse(args)
+
+	only, err := resolveOnly(m, *preset, *components, fs.Args())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit export: "+err.Error())
+		os.Exit(2)
+	}
 
 	res, err := bundle.Export(bundle.Options{
 		Manifest: m,
@@ -118,7 +128,7 @@ func cmdExport(m *manifest.Manifest, env inventory.Environment, tgt target.Targe
 		Target:   tgt,
 		OutDir:   *out,
 		DryRun:   *dry,
-		Only:     fs.Args(),
+		Only:     only,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kit export: "+err.Error())
@@ -158,9 +168,16 @@ func cmdInstall(m *manifest.Manifest, env inventory.Environment, tgt target.Targ
 	apply := fs.Bool("apply", false, "execute the plan instead of only printing it")
 	interactive := fs.Bool("interactive", false, "accept each component one by one")
 	fs.BoolVar(interactive, "i", false, "shorthand for --interactive")
+	preset := fs.String("preset", "", "preset of components")
+	components := fs.String("components", "", "comma-separated component ids")
 	_ = fs.Parse(args)
 
-	plan := install.BuildPlan(m, tgt, fs.Args())
+	only, err := resolveOnly(m, *preset, *components, fs.Args())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit install: "+err.Error())
+		os.Exit(2)
+	}
+	plan := install.BuildPlan(m, tgt, only)
 	runner := install.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
 
 	if *interactive {
@@ -230,11 +247,19 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 	targetName := fs.String("target", string(tgt), "destination target: linux|wsl|windows")
 	skipTools := fs.Bool("skip-tools", false, "do not install tools")
 	skipConfigs := fs.Bool("skip-configs", false, "do not write config files")
+	preset := fs.String("preset", "", "preset of components")
+	components := fs.String("components", "", "comma-separated component ids")
 	_ = fs.Parse(args)
 
 	rt := target.Target(*targetName)
 	if !rt.Valid() {
 		fmt.Fprintf(os.Stderr, "kit setup: invalid target %q\n", *targetName)
+		os.Exit(2)
+	}
+
+	only, err := resolveOnly(m, *preset, *components, fs.Args())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
 		os.Exit(2)
 	}
 
@@ -247,7 +272,7 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 
 		if !*skipTools {
 			fmt.Println("\n== tools ==")
-			plan := install.BuildPlan(m, rt, nil)
+			plan := install.BuildPlan(m, rt, only)
 			if err := install.RunInteractive(context.Background(), plan, runner, prompt); err != nil {
 				fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
 				os.Exit(1)
@@ -266,6 +291,7 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 					Env:        env,
 					Target:     rt,
 					Force:      *force,
+					Only:       only,
 				})
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
@@ -287,7 +313,7 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 
 	if !*skipTools {
 		fmt.Println("\n== tools ==")
-		plan := install.BuildPlan(m, rt, nil)
+		plan := install.BuildPlan(m, rt, only)
 		if *apply {
 			install.AugmentPath(env)
 		}
@@ -309,6 +335,7 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 			Target:     rt,
 			DryRun:     !*apply,
 			Force:      *force,
+			Only:       only,
 		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
@@ -335,6 +362,47 @@ func printRestoreResult(res *restore.Result) {
 	}
 }
 
+func cmdPresets(m *manifest.Manifest) {
+	if len(m.Presets) == 0 {
+		fmt.Println("(no presets defined)")
+		return
+	}
+	for _, name := range m.PresetNames() {
+		ids, _ := m.ResolvePreset(name)
+		fmt.Printf("%-11s %s\n", name, strings.Join(ids, ", "))
+	}
+}
+
+// resolveOnly merges a --preset, a --components list, and positional ids into
+// one de-duplicated component selection. An empty result means "everything".
+func resolveOnly(m *manifest.Manifest, preset, components string, positional []string) ([]string, error) {
+	var all []string
+	if preset != "" {
+		ids, err := m.ResolvePreset(preset)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, ids...)
+	}
+	for _, s := range strings.Split(components, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			all = append(all, s)
+		}
+	}
+	all = append(all, positional...)
+
+	seen := make(map[string]bool, len(all))
+	out := make([]string, 0, len(all))
+	for _, id := range all {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out, nil
+}
+
 func humanBytes(n int64) string {
 	switch {
 	case n >= 1<<20:
@@ -352,14 +420,19 @@ func usage() {
 Usage:
   kit                    launch the TUI
   kit detect             print environment and component status
+  kit presets            list the available component presets
   kit export [flags] [id...]
                          export the kit as a secret-sanitized bundle
         --out DIR        output directory (default "bundles")
         --dry-run        report captured files and redactions, write nothing
+        --preset NAME    component preset (see: kit presets)
+        --components CSV comma-separated component ids
   kit install [flags] [id...]
                          print (and optionally run) the install plan
         --apply          execute the plan; without it this is a dry-run
         -i, --interactive  accept each component one by one
+        --preset NAME    component preset (see: kit presets)
+        --components CSV comma-separated component ids
   kit restore [flags] <bundle.zip>
                          apply a bundle's configs to this machine
         --dry-run        report destinations without writing
@@ -372,6 +445,8 @@ Usage:
         --force          overwrite existing config files
         --skip-tools     do not install tools
         --skip-configs   do not write config files
+        --preset NAME    component preset (see: kit presets)
+        --components CSV comma-separated component ids
         --target T       destination target: linux|wsl|windows
   kit version            print version`)
 }
