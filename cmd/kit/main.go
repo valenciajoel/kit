@@ -19,6 +19,7 @@ import (
 	"github.com/valenciajoel/kit/internal/restore"
 	"github.com/valenciajoel/kit/internal/target"
 	"github.com/valenciajoel/kit/internal/tui"
+	"github.com/valenciajoel/kit/internal/update"
 	"github.com/valenciajoel/kit/kits"
 )
 
@@ -68,6 +69,8 @@ func main() {
 			cmdSetup(m, env, tgt, args[1:])
 		case "presets":
 			cmdPresets(m)
+		case "update":
+			cmdUpdate(args[1:])
 		case "version", "--version", "-v":
 			fmt.Println("kit " + version)
 		case "help", "--help", "-h":
@@ -393,6 +396,44 @@ func printRestoreResult(res *restore.Result) {
 	}
 }
 
+// cmdUpdate checks GitHub releases and self-replaces the binary when newer.
+func cmdUpdate(args []string) {
+	fs := flag.NewFlagSet("update", flag.ExitOnError)
+	check := fs.Bool("check", false, "only check for a newer release")
+	force := fs.Bool("force", false, "reinstall even if already current")
+	yes := fs.Bool("yes", false, "do not ask for confirmation")
+	fs.BoolVar(yes, "y", false, "shorthand for --yes")
+	_ = fs.Parse(args)
+
+	res, err := update.Run(update.Options{CurrentVersion: version, CheckOnly: true, Force: *force})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit update: "+err.Error())
+		os.Exit(1)
+	}
+	if res.UpToDate {
+		fmt.Printf("kit %s is up to date\n", res.Current)
+		return
+	}
+	fmt.Printf("kit %s → %s available\n", res.Current, res.Latest)
+	if *check {
+		return
+	}
+	if !*yes {
+		prompt := install.NewPrompter(os.Stdin, os.Stdout)
+		if !prompt.Yes("update now? [y/N] ") {
+			fmt.Println("aborted")
+			return
+		}
+	}
+
+	res2, err := update.Run(update.Options{CurrentVersion: version, Force: true})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit update: "+err.Error())
+		os.Exit(1)
+	}
+	fmt.Printf("updated to %s\n", res2.Latest)
+}
+
 func cmdPresets(m *manifest.Manifest) {
 	if len(m.Presets) == 0 {
 		fmt.Println("(no presets defined)")
@@ -452,6 +493,10 @@ Usage:
   kit                    launch the TUI
   kit detect             print environment and component status
   kit presets            list the available component presets
+  kit update [flags]     check for and install a newer kit release
+        --check          only report whether an update is available
+        -y, --yes        update without asking
+        --force          reinstall even if already current
   kit export [flags] [id...]
                          export the kit as a secret-sanitized bundle
         --out DIR        output directory (default "bundles")

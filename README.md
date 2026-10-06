@@ -57,6 +57,11 @@ Or with the Makefile:
 
     kit            launch the TUI (Dashboard / Inventory / Install / Actions)
     kit detect     print OS, arch, distro, WSL flag, and per-component status
+    kit presets    list available component presets
+    kit update     check for and install a newer kit release
+                     --check         only report whether an update is available
+                     -y, --yes       update without asking
+                     --force         reinstall even if already current
     kit setup      install tools AND write configs in one run (dry-run by default)
                      --apply         execute; without it this is a dry-run
                      -i, --interactive  guided: accept each component one by one
@@ -64,13 +69,19 @@ Or with the Makefile:
                      --force         overwrite existing config files
                      --skip-tools    do not install tools
                      --skip-configs  do not write config files
+                     --preset NAME   component preset (see kit presets)
+                     --components CSV  comma-separated component ids
                      --target T      destination target: linux|wsl|windows
     kit export     capture the kit as a secret-sanitized bundle (zip)
                      --out DIR       output directory (default "bundles")
                      --dry-run       report captured files and redactions, write nothing
+                     --preset NAME   component preset (see kit presets)
+                     --components CSV  comma-separated component ids
     kit install    print (and optionally run) the tool install plan
                      --apply         execute the plan; without it this is a dry-run
                      -i, --interactive  accept each component one by one
+                     --preset NAME   component preset (see kit presets)
+                     --components CSV  comma-separated component ids
     kit restore    apply a bundle's configs to this machine
                      --dry-run       report destinations without writing
                      --force         overwrite existing files
