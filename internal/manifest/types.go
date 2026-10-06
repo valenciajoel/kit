@@ -5,6 +5,15 @@ type Manifest struct {
 	Version    int                 `yaml:"version"`
 	Components []Component         `yaml:"components"`
 	Presets    map[string][]string `yaml:"presets,omitempty"`
+	Themes     *Themes             `yaml:"themes,omitempty"`
+}
+
+// Themes points kit at the theme system that owns the machine's themes, so kit
+// can list them and delegate applying them without reimplementing rendering.
+type Themes struct {
+	Dir        string `yaml:"dir"`
+	NameFile   string `yaml:"name_file,omitempty"`
+	SetCommand string `yaml:"set_command"`
 }
 
 // Component describes a single tool in the kit: how to detect it, which config

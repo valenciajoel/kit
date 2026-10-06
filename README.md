@@ -55,9 +55,13 @@ Or with the Makefile:
 
 ## Usage
 
-    kit            launch the TUI (Dashboard / Inventory / Install / Actions)
+    kit            launch the TUI (Dashboard / Inventory / Install / Themes / Actions)
     kit detect     print OS, arch, distro, WSL flag, and per-component status
     kit presets    list available component presets
+    kit themes     list the themes available on this machine
+    kit theme      show or set the active theme
+                     --dry-run       show the command without applying
+                     -y, --yes       apply without asking for confirmation
     kit state      show the files kit manages on this machine
     kit uninstall  remove (or restore) the files kit wrote
                      --dry-run       report without changing anything
@@ -144,6 +148,21 @@ update banner when one is available; run `kit update` to apply it.
 - `restore` renders `~` back to the destination machine's home directory and
   resolves each file against its per-target destination.
 - Bundles never record the hostname or absolute source paths.
+
+### Themes
+
+kit does not reimplement theming. It lists the themes found in the configured
+`themes.dir` (for this Omakub-based setup, `~/.config/omakub/themes`) and applies
+a selection by delegating to `themes.set_command` (`omakub-theme-set`), so
+rendering, accents, GNOME/VSCode sync and hooks stay with the owner:
+
+    kit themes              # list, marking the active one
+    kit theme               # print the active theme
+    kit theme nord          # apply (asks first; -y to skip)
+    kit theme --dry-run nord
+
+The TUI **Themes** tab does the same: pick a theme and press enter (the TUI exits
+and runs the theme command).
 
 ### State and backups
 

@@ -20,6 +20,7 @@ import (
 	"github.com/valenciajoel/kit/internal/restore"
 	"github.com/valenciajoel/kit/internal/state"
 	"github.com/valenciajoel/kit/internal/target"
+	"github.com/valenciajoel/kit/internal/theme"
 	"github.com/valenciajoel/kit/internal/tui"
 	"github.com/valenciajoel/kit/internal/update"
 	"github.com/valenciajoel/kit/kits"
@@ -73,6 +74,10 @@ func main() {
 			cmdPresets(m)
 		case "update":
 			cmdUpdate(args[1:])
+		case "themes":
+			cmdThemes(m, env, tgt)
+		case "theme":
+			cmdTheme(m, env, tgt, args[1:])
 		case "state":
 			cmdState(env)
 		case "uninstall":
@@ -102,6 +107,15 @@ func main() {
 			fmt.Fprintln(os.Stderr, "kit: "+err.Error())
 			os.Exit(1)
 		}
+	}
+	if fm, ok := final.(tui.Model); ok && fm.RequestedTheme() != "" {
+		slug := fm.RequestedTheme()
+		fmt.Printf("kit theme → %s\n", slug)
+		if err := theme.Apply(context.Background(), m.Themes, slug, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "kit: "+err.Error())
+			os.Exit(1)
+		}
+		fmt.Printf("theme set to %s\n", slug)
 	}
 }
 
@@ -491,6 +505,109 @@ func cmdPresets(m *manifest.Manifest) {
 	}
 }
 
+// cmdThemes lists the themes available on this machine, marking the active one.
+func cmdThemes(m *manifest.Manifest, env inventory.Environment, tgt target.Target) {
+	themes, err := theme.List(m.Themes, env, tgt)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit themes: "+err.Error())
+		os.Exit(1)
+	}
+	if len(themes) == 0 {
+		fmt.Println("no themes found (set themes.dir in kit.yaml)")
+		return
+	}
+	cur := theme.Current(m.Themes, env, tgt)
+	for _, th := range themes {
+		mark := "  "
+		if th.Slug == cur {
+			mark = "* "
+		}
+		fmt.Printf("%s%-18s %s\n", mark, th.Slug, th.Label)
+	}
+}
+
+// cmdTheme shows or sets the active theme by delegating to the owner command.
+// Flags are parsed manually so they may appear before or after the theme name.
+func cmdTheme(m *manifest.Manifest, env inventory.Environment, tgt target.Target, args []string) {
+	var (
+		dry  bool
+		yes  bool
+		name string
+	)
+	for _, a := range args {
+		switch a {
+		case "--dry-run", "-n":
+			dry = true
+		case "--yes", "-y":
+			yes = true
+		default:
+			if strings.HasPrefix(a, "-") {
+				fmt.Fprintf(os.Stderr, "kit theme: unknown flag %q\n", a)
+				os.Exit(2)
+			}
+			if name != "" {
+				fmt.Fprintln(os.Stderr, "kit theme: expected at most one theme name")
+				os.Exit(2)
+			}
+			name = a
+		}
+	}
+
+	themes, err := theme.List(m.Themes, env, tgt)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit theme: "+err.Error())
+		os.Exit(1)
+	}
+	cur := theme.Current(m.Themes, env, tgt)
+
+	if name == "" {
+		if cur == "" {
+			fmt.Println("no theme set")
+			return
+		}
+		fmt.Println(cur)
+		return
+	}
+
+	slug := theme.Normalize(name)
+	found := false
+	for _, th := range themes {
+		if th.Slug == slug {
+			found = true
+			break
+		}
+	}
+	if !found {
+		fmt.Fprintf(os.Stderr, "kit theme: unknown theme %q (run `kit themes`)\n", slug)
+		os.Exit(2)
+	}
+	if slug == cur {
+		fmt.Printf("theme %s is already active\n", slug)
+		return
+	}
+
+	setCmd := "the theme set command"
+	if m.Themes != nil && m.Themes.SetCommand != "" {
+		setCmd = m.Themes.SetCommand
+	}
+	if dry {
+		fmt.Printf("would run: %s %s\n", setCmd, slug)
+		return
+	}
+	if !yes {
+		prompt := install.NewPrompter(os.Stdin, os.Stdout)
+		if !prompt.Yes(fmt.Sprintf("apply theme %q? this swaps configs and restarts components [y/N] ", slug)) {
+			fmt.Println("aborted")
+			return
+		}
+	}
+	if err := theme.Apply(context.Background(), m.Themes, slug, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "kit theme: "+err.Error())
+		os.Exit(1)
+	}
+	fmt.Printf("theme set to %s\n", slug)
+}
+
 // cmdState prints what kit manages on this machine.
 func cmdState(env inventory.Environment) {
 	st, err := state.Load(env)
@@ -649,6 +766,10 @@ Usage:
   kit                    launch the TUI
   kit detect             print environment and component status
   kit presets            list the available component presets
+  kit themes             list the themes available on this machine
+  kit theme [name]       show or set the active theme
+        --dry-run        show the command without applying
+        -y, --yes        apply without asking for confirmation
   kit state              show the files kit manages on this machine
   kit uninstall [flags]  remove (or restore) the files kit wrote
         --dry-run        report without changing anything

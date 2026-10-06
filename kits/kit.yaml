@@ -177,3 +177,10 @@ presets:
     - node
     - opencode
     - nerd-font-caskaydia
+
+# Theme system. kit lists the themes found in dir and applies a selection by
+# delegating to set_command (Omakub owns theme rendering, accents, and hooks).
+themes:
+  dir: "~/.config/omakub/themes"
+  name_file: "~/.config/omakub/current/theme.name"
+  set_command: "omakub-theme-set"

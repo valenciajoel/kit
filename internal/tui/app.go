@@ -14,6 +14,7 @@ import (
 	"github.com/valenciajoel/kit/internal/inventory"
 	"github.com/valenciajoel/kit/internal/manifest"
 	"github.com/valenciajoel/kit/internal/target"
+	"github.com/valenciajoel/kit/internal/theme"
 	"github.com/valenciajoel/kit/internal/update"
 )
 
@@ -23,31 +24,36 @@ const (
 	tabDashboard tab = iota
 	tabInventory
 	tabInstall
+	tabThemes
 	tabActions
 	tabCount
 )
 
-var tabNames = []string{"Dashboard", "Inventory", "Install", "Actions"}
+var tabNames = []string{"Dashboard", "Inventory", "Install", "Themes", "Actions"}
 
 // Model is the root Bubbletea model.
 type Model struct {
-	m          *manifest.Manifest
-	env        inventory.Environment
-	tgt        target.Target
-	tools      []inventory.ToolStatus
-	components []string
-	selected   map[string]bool
-	cursor     int
-	presetIdx  int
-	requested  bool
-	version    string
-	latest     string
-	width      int
-	height     int
-	tab        tab
-	status     string
-	output     string
-	ready      bool
+	m           *manifest.Manifest
+	env         inventory.Environment
+	tgt         target.Target
+	tools       []inventory.ToolStatus
+	components  []string
+	selected    map[string]bool
+	cursor      int
+	presetIdx   int
+	requested   bool
+	themes      []theme.Theme
+	themeCur    string
+	themeCursor int
+	themeReq    string
+	version     string
+	latest      string
+	width       int
+	height      int
+	tab         tab
+	status      string
+	output      string
+	ready       bool
 }
 
 // actionResultMsg carries the text produced by an asynchronous action.
@@ -69,6 +75,7 @@ func New(m *manifest.Manifest, env inventory.Environment, tgt target.Target, ver
 		components = append(components, c.ID)
 		selected[c.ID] = true
 	}
+	themes, _ := theme.List(m.Themes, env, tgt)
 	return Model{
 		m:          m,
 		env:        env,
@@ -77,6 +84,8 @@ func New(m *manifest.Manifest, env inventory.Environment, tgt target.Target, ver
 		components: components,
 		selected:   selected,
 		presetIdx:  -1,
+		themes:     themes,
+		themeCur:   theme.Current(m.Themes, env, tgt),
 		version:    version,
 		status:     fmt.Sprintf("loaded manifest with %d components", len(m.Components)),
 	}
@@ -122,6 +131,9 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if model.tab == tabInstall {
 			return model.updateInstall(msg)
+		}
+		if model.tab == tabThemes {
+			return model.updateThemes(msg)
 		}
 		switch msg.String() {
 		case "tab", "right", "l":
@@ -191,6 +203,41 @@ func (model Model) updateInstall(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	return model, nil
 }
+
+// updateThemes handles keys on the Themes tab: navigate and pick a theme.
+func (model Model) updateThemes(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if model.themeCursor > 0 {
+			model.themeCursor--
+		}
+	case "down", "j":
+		if model.themeCursor < len(model.themes)-1 {
+			model.themeCursor++
+		}
+	case "enter":
+		if len(model.themes) == 0 {
+			return model, nil
+		}
+		slug := model.themes[model.themeCursor].Slug
+		if slug == model.themeCur {
+			model.status = slug + " is already active"
+			return model, nil
+		}
+		model.themeReq = slug
+		return model, tea.Quit
+	case "tab", "right", "l":
+		model.tab = (model.tab + 1) % tabCount
+	case "shift+tab", "left", "h":
+		model.tab = (model.tab + tabCount - 1) % tabCount
+	case "esc":
+		model.tab = tabDashboard
+	}
+	return model, nil
+}
+
+// RequestedTheme returns the theme the user picked on the Themes tab, or "".
+func (model Model) RequestedTheme() string { return model.themeReq }
 
 // Selected returns the checked component ids, in manifest order.
 func (model Model) Selected() []string {
@@ -283,6 +330,8 @@ func (model Model) View() string {
 		b.WriteString(model.renderInventory())
 	case tabInstall:
 		b.WriteString(model.renderInstall())
+	case tabThemes:
+		b.WriteString(model.renderThemes())
 	case tabActions:
 		b.WriteString(model.renderActions())
 	}
@@ -386,6 +435,27 @@ func (model Model) renderInstall() string {
 	b.WriteString("   " + okStyle.Render(fmt.Sprintf("%d selected", model.countSelected())))
 	b.WriteString("\n\n")
 	b.WriteString(subtleStyle.Render("space toggle · a all · n none · p preset · enter install & quit"))
+	return boxStyle.Render(strings.TrimRight(b.String(), "\n"))
+}
+
+func (model Model) renderThemes() string {
+	if len(model.themes) == 0 {
+		return boxStyle.Render(subtleStyle.Render("no themes found (set themes.dir in kit.yaml)"))
+	}
+	var b strings.Builder
+	for i, th := range model.themes {
+		cursor := "  "
+		if i == model.themeCursor {
+			cursor = keyStyle.Render("> ")
+		}
+		label := th.Label
+		if th.Slug == model.themeCur {
+			label = okStyle.Render(th.Label + " (active)")
+		}
+		b.WriteString(fmt.Sprintf("%s%-26s %s\n", cursor, label, subtleStyle.Render(th.Slug)))
+	}
+	b.WriteString("\n")
+	b.WriteString(subtleStyle.Render("enter apply theme (exits and runs the theme command) · esc back"))
 	return boxStyle.Render(strings.TrimRight(b.String(), "\n"))
 }
 

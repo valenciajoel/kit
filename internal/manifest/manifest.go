@@ -106,6 +106,14 @@ func (m *Manifest) Validate() error {
 			}
 		}
 	}
+	if m.Themes != nil {
+		if m.Themes.Dir == "" {
+			return fmt.Errorf("themes.dir is required when themes is set")
+		}
+		if m.Themes.SetCommand == "" {
+			return fmt.Errorf("themes.set_command is required when themes is set")
+		}
+	}
 	return nil
 }
 
