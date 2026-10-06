@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/valenciajoel/kit/internal/inventory"
 	"github.com/valenciajoel/kit/internal/manifest"
 	"github.com/valenciajoel/kit/internal/restore"
+	"github.com/valenciajoel/kit/internal/state"
 	"github.com/valenciajoel/kit/internal/target"
 	"github.com/valenciajoel/kit/internal/tui"
 	"github.com/valenciajoel/kit/internal/update"
@@ -71,6 +73,10 @@ func main() {
 			cmdPresets(m)
 		case "update":
 			cmdUpdate(args[1:])
+		case "state":
+			cmdState(env)
+		case "uninstall":
+			cmdUninstall(env, args[1:])
 		case "version", "--version", "-v":
 			fmt.Println("kit " + version)
 		case "help", "--help", "-h":
@@ -108,13 +114,22 @@ func runSetupSelection(m *manifest.Manifest, env inventory.Environment, tgt targ
 	if err := install.Execute(context.Background(), plan, runner, true, os.Stdout); err != nil {
 		return err
 	}
+
+	st, err := state.Load(env)
+	if err != nil {
+		return err
+	}
 	res, err := restore.Restore(restore.Options{
 		Manifest: m,
 		Env:      env,
 		Target:   tgt,
 		Only:     only,
+		State:    st,
 	})
 	if err != nil {
+		return err
+	}
+	if err := st.Save(); err != nil {
 		return err
 	}
 	printRestoreResult(res)
@@ -247,6 +262,12 @@ func cmdRestore(m *manifest.Manifest, env inventory.Environment, tgt target.Targ
 		os.Exit(2)
 	}
 
+	st, err := state.Load(env)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit restore: "+err.Error())
+		os.Exit(1)
+	}
+
 	res, err := restore.Restore(restore.Options{
 		BundlePath: fs.Arg(0),
 		Manifest:   m,
@@ -254,10 +275,17 @@ func cmdRestore(m *manifest.Manifest, env inventory.Environment, tgt target.Targ
 		Target:     rt,
 		DryRun:     *dry,
 		Force:      *force,
+		State:      st,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kit restore: "+err.Error())
 		os.Exit(1)
+	}
+	if !*dry {
+		if err := st.Save(); err != nil {
+			fmt.Fprintln(os.Stderr, "kit restore: "+err.Error())
+			os.Exit(1)
+		}
 	}
 
 	if *dry {
@@ -297,6 +325,12 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 		os.Exit(2)
 	}
 
+	st, err := state.Load(env)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
+		os.Exit(1)
+	}
+
 	runner := install.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
 
 	if *interactive {
@@ -326,8 +360,13 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 					Target:     rt,
 					Force:      *force,
 					Only:       only,
+					State:      st,
 				})
 				if err != nil {
+					fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
+					os.Exit(1)
+				}
+				if err := st.Save(); err != nil {
 					fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
 					os.Exit(1)
 				}
@@ -370,10 +409,17 @@ func cmdSetup(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 			DryRun:     !*apply,
 			Force:      *force,
 			Only:       only,
+			State:      st,
 		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
 			os.Exit(1)
+		}
+		if *apply {
+			if err := st.Save(); err != nil {
+				fmt.Fprintln(os.Stderr, "kit setup: "+err.Error())
+				os.Exit(1)
+			}
 		}
 		printRestoreResult(res)
 	}
@@ -445,6 +491,116 @@ func cmdPresets(m *manifest.Manifest) {
 	}
 }
 
+// cmdState prints what kit manages on this machine.
+func cmdState(env inventory.Environment) {
+	st, err := state.Load(env)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit state: "+err.Error())
+		os.Exit(1)
+	}
+	fmt.Printf("kit state — %d managed file(s)\n", st.Len())
+	if st.UpdatedAt != "" {
+		fmt.Printf("last updated: %s\n", st.UpdatedAt)
+	}
+	for _, e := range st.Files {
+		note := ""
+		if e.Backup != "" {
+			note = "  (backup kept)"
+		}
+		fmt.Printf("  %-9s %s%s\n", e.Component, e.Path, note)
+	}
+	fmt.Printf("state file:  %s\n", state.FilePath(env))
+	fmt.Printf("backups dir: %s\n", filepath.Join(state.Dir(env), "backups"))
+}
+
+// cmdUninstall removes (or restores) the files kit wrote, leaving user edits.
+func cmdUninstall(env inventory.Environment, args []string) {
+	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
+	dry := fs.Bool("dry-run", false, "report without changing anything")
+	restoreBackups := fs.Bool("restore", false, "restore backups instead of deleting")
+	yes := fs.Bool("yes", false, "do not ask for confirmation")
+	fs.BoolVar(yes, "y", false, "shorthand for --yes")
+	_ = fs.Parse(args)
+
+	st, err := state.Load(env)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit uninstall: "+err.Error())
+		os.Exit(1)
+	}
+	if st.Len() == 0 {
+		fmt.Println("kit manages no files on this machine")
+		return
+	}
+
+	if !*dry && !*yes {
+		prompt := install.NewPrompter(os.Stdin, os.Stdout)
+		if !prompt.Yes(fmt.Sprintf("remove %d managed file(s)? [y/N] ", st.Len())) {
+			fmt.Println("aborted")
+			return
+		}
+	}
+
+	removed, restored, kept := 0, 0, 0
+	var done []string
+	for _, e := range st.Files {
+		if *dry {
+			action := "delete"
+			if *restoreBackups && e.Backup != "" {
+				action = "restore"
+			}
+			fmt.Printf("  %-8s %s\n", action, e.Path)
+			continue
+		}
+
+		if *restoreBackups && e.Backup != "" {
+			data, err := os.ReadFile(e.Backup)
+			if err != nil {
+				fmt.Printf("  warning: %s\n", err)
+				continue
+			}
+			if err := os.MkdirAll(filepath.Dir(e.Path), 0o755); err != nil {
+				fmt.Printf("  warning: %s\n", err)
+				continue
+			}
+			if err := os.WriteFile(e.Path, data, 0o644); err != nil {
+				fmt.Printf("  warning: %s\n", err)
+				continue
+			}
+			fmt.Printf("  restored %s\n", e.Path)
+			restored++
+			done = append(done, e.Path)
+			continue
+		}
+
+		data, rerr := os.ReadFile(e.Path)
+		if rerr == nil && state.Hash(data) != e.Hash {
+			fmt.Printf("  kept %s (modified since kit wrote it)\n", e.Path)
+			kept++
+			continue
+		}
+		if err := os.Remove(e.Path); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("  warning: %s\n", err)
+			continue
+		}
+		fmt.Printf("  removed %s\n", e.Path)
+		removed++
+		done = append(done, e.Path)
+	}
+
+	if *dry {
+		fmt.Println("\n(dry-run; nothing changed)")
+		return
+	}
+	for _, p := range done {
+		st.Remove(p)
+	}
+	if err := st.Save(); err != nil {
+		fmt.Fprintln(os.Stderr, "kit uninstall: "+err.Error())
+		os.Exit(1)
+	}
+	fmt.Printf("\nremoved %d, restored %d, kept %d\n", removed, restored, kept)
+}
+
 // resolveOnly merges a --preset, a --components list, and positional ids into
 // one de-duplicated component selection. An empty result means "everything".
 func resolveOnly(m *manifest.Manifest, preset, components string, positional []string) ([]string, error) {
@@ -493,6 +649,11 @@ Usage:
   kit                    launch the TUI
   kit detect             print environment and component status
   kit presets            list the available component presets
+  kit state              show the files kit manages on this machine
+  kit uninstall [flags]  remove (or restore) the files kit wrote
+        --dry-run        report without changing anything
+        --restore        restore backups instead of deleting
+        -y, --yes        do not ask for confirmation
   kit update [flags]     check for and install a newer kit release
         --check          only report whether an update is available
         -y, --yes        update without asking

@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/valenciajoel/kit/internal/bundle"
 	"github.com/valenciajoel/kit/internal/inventory"
 	"github.com/valenciajoel/kit/internal/manifest"
 	"github.com/valenciajoel/kit/internal/portable"
+	"github.com/valenciajoel/kit/internal/state"
 	"github.com/valenciajoel/kit/internal/target"
 	"github.com/valenciajoel/kit/kits"
 )
@@ -27,6 +29,7 @@ type Options struct {
 	DryRun     bool
 	Force      bool
 	Only       []string
+	State      *state.Store
 }
 
 // selected reports whether a component id passes the Only filter. An empty
@@ -125,10 +128,12 @@ func applyBundle(opts Options, meta *bundle.Metadata, index map[string]*zip.File
 				res.Skipped = append(res.Skipped, dest+" (exists)")
 				continue
 			}
+			backup := backupExisting(opts, res, dest)
 			if err := writeFile(dest, data); err != nil {
 				res.Warnings = append(res.Warnings, "write "+dest+": "+err.Error())
 				continue
 			}
+			recordWrite(opts, c.ComponentID, "bundle", dest, data, backup)
 		}
 		res.Written = append(res.Written, dest)
 	}
@@ -156,13 +161,45 @@ func restoreSeeds(opts Options, covered map[string]bool, res *Result) {
 				res.Skipped = append(res.Skipped, dest+" (exists, seed)")
 				continue
 			}
+			backup := backupExisting(opts, res, dest)
 			if err := writeFile(dest, seed); err != nil {
 				res.Warnings = append(res.Warnings, "seed "+c.ID+": "+err.Error())
 				continue
 			}
+			recordWrite(opts, c.ID, "seed", dest, seed, backup)
 		}
 		res.Written = append(res.Written, dest+" (seed)")
 	}
+}
+
+// backupExisting copies a pre-existing destination aside before kit overwrites
+// it, returning the backup path (empty when there is nothing to back up).
+func backupExisting(opts Options, res *Result, dest string) string {
+	if opts.State == nil {
+		return ""
+	}
+	backup, err := opts.State.BackupExisting(dest)
+	if err != nil {
+		res.Warnings = append(res.Warnings, "backup "+dest+": "+err.Error())
+		return ""
+	}
+	return backup
+}
+
+// recordWrite remembers a file kit just wrote, with a content hash so later
+// commands can tell whether the user edited it.
+func recordWrite(opts Options, component, source, dest string, data []byte, backup string) {
+	if opts.State == nil {
+		return
+	}
+	opts.State.Record(state.Entry{
+		Path:      dest,
+		Component: component,
+		Source:    source,
+		Hash:      state.Hash(data),
+		Backup:    backup,
+		WrittenAt: time.Now().Format(time.RFC3339),
+	})
 }
 
 func readZipEntry(f *zip.File) ([]byte, error) {

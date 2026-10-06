@@ -58,6 +58,11 @@ Or with the Makefile:
     kit            launch the TUI (Dashboard / Inventory / Install / Actions)
     kit detect     print OS, arch, distro, WSL flag, and per-component status
     kit presets    list available component presets
+    kit state      show the files kit manages on this machine
+    kit uninstall  remove (or restore) the files kit wrote
+                     --dry-run       report without changing anything
+                     --restore       restore backups instead of deleting
+                     -y, --yes       do not ask for confirmation
     kit update     check for and install a newer kit release
                      --check         only report whether an update is available
                      -y, --yes       update without asking
@@ -139,6 +144,18 @@ update banner when one is available; run `kit update` to apply it.
 - `restore` renders `~` back to the destination machine's home directory and
   resolves each file against its per-target destination.
 - Bundles never record the hostname or absolute source paths.
+
+### State and backups
+
+kit keeps a ledger of what it wrote, at `~/.config/kit/state.json`, with a
+content hash per file and a copy of anything it overwrote under
+`~/.config/kit/backups/`:
+
+- `kit state` lists the managed files.
+- `kit uninstall` removes only managed files whose hash still matches (files
+  you edited are kept), or `--restore` puts the backups back.
+- Because kit knows what it owns, `sync` and safer upgrades can build on it
+  (coming next).
 
 ## Security
 
