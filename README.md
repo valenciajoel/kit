@@ -128,6 +128,9 @@ The TUI's **Install** tab does the same interactively: toggle components with
 space, cycle presets with `p`, and press enter to install the selection (the
 TUI exits and the install runs with a normal terminal so prompts work).
 
+On startup the TUI also checks for a newer release (non-blocking) and shows an
+update banner when one is available; run `kit update` to apply it.
+
 ### Portability
 
 - `export` rewrites absolute home paths to `~` and repoints third-party imports

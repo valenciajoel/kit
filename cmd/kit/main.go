@@ -83,7 +83,7 @@ func main() {
 		return
 	}
 
-	program := tea.NewProgram(tui.New(m, env, tgt), tea.WithAltScreen())
+	program := tea.NewProgram(tui.New(m, env, tgt, version), tea.WithAltScreen())
 	final, err := program.Run()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kit: "+err.Error())

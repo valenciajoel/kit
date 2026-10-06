@@ -3,7 +3,9 @@ package tui
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/valenciajoel/kit/internal/inventory"
 	"github.com/valenciajoel/kit/internal/manifest"
 	"github.com/valenciajoel/kit/internal/target"
+	"github.com/valenciajoel/kit/internal/update"
 )
 
 type tab int
@@ -37,6 +40,8 @@ type Model struct {
 	cursor     int
 	presetIdx  int
 	requested  bool
+	version    string
+	latest     string
 	width      int
 	height     int
 	tab        tab
@@ -51,8 +56,13 @@ type actionResultMsg struct {
 	status string
 }
 
+// updateResultMsg reports a newer release, if one was found.
+type updateResultMsg struct {
+	latest string
+}
+
 // New builds the root model and performs an initial inventory scan.
-func New(m *manifest.Manifest, env inventory.Environment, tgt target.Target) Model {
+func New(m *manifest.Manifest, env inventory.Environment, tgt target.Target, version string) Model {
 	components := make([]string, 0, len(m.Components))
 	selected := make(map[string]bool, len(m.Components))
 	for _, c := range m.Components {
@@ -67,12 +77,29 @@ func New(m *manifest.Manifest, env inventory.Environment, tgt target.Target) Mod
 		components: components,
 		selected:   selected,
 		presetIdx:  -1,
+		version:    version,
 		status:     fmt.Sprintf("loaded manifest with %d components", len(m.Components)),
 	}
 }
 
-// Init implements tea.Model.
-func (model Model) Init() tea.Cmd { return nil }
+// Init implements tea.Model. It kicks off a non-blocking update check.
+func (model Model) Init() tea.Cmd { return model.checkUpdate }
+
+// checkUpdate asks GitHub for the latest release and reports it when newer.
+func (model Model) checkUpdate() tea.Msg {
+	if model.version == "" || model.version == "dev" {
+		return updateResultMsg{}
+	}
+	res, err := update.Run(update.Options{
+		CurrentVersion: model.version,
+		CheckOnly:      true,
+		Client:         &http.Client{Timeout: 5 * time.Second},
+	})
+	if err != nil || res == nil || res.UpToDate || res.Latest == "" {
+		return updateResultMsg{}
+	}
+	return updateResultMsg{latest: res.Latest}
+}
 
 // Update implements tea.Model.
 func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -80,6 +107,11 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actionResultMsg:
 		model.output = msg.text
 		model.status = msg.status
+		return model, nil
+	case updateResultMsg:
+		if msg.latest != "" {
+			model.latest = msg.latest
+		}
 		return model, nil
 	case tea.WindowSizeMsg:
 		model.width, model.height = msg.Width, msg.Height
@@ -240,6 +272,7 @@ func (model Model) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("kit — terminal kit manager"))
 	b.WriteString("\n")
+	b.WriteString(model.renderUpdateNotice())
 	b.WriteString(model.renderTabs())
 	b.WriteString("\n\n")
 
@@ -259,6 +292,14 @@ func (model Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(model.renderFooter())
 	return b.String()
+}
+
+// renderUpdateNotice returns a banner when a newer release was detected, or "".
+func (model Model) renderUpdateNotice() string {
+	if model.latest == "" {
+		return ""
+	}
+	return updateStyle.Render(fmt.Sprintf("⬆ update available: %s → %s   (run: kit update)", model.version, model.latest)) + "\n"
 }
 
 func (model Model) renderTabs() string {

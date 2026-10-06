@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -39,7 +40,7 @@ func press(m Model, key string) Model {
 }
 
 func newInstallModel() Model {
-	m := New(testManifest(), inventory.Environment{OS: inventory.Linux}, target.Linux)
+	m := New(testManifest(), inventory.Environment{OS: inventory.Linux}, target.Linux, "v0.1.7")
 	m.tab = tabInstall
 	return m
 }
@@ -78,6 +79,22 @@ func TestEmptySelectionDoesNotRequest(t *testing.T) {
 	m = press(m, "enter")
 	if m.Requested() {
 		t.Fatal("enter with an empty selection must not request install")
+	}
+}
+
+func TestUpdateNotice(t *testing.T) {
+	m := New(testManifest(), inventory.Environment{OS: inventory.Linux}, target.Linux, "v0.1.7")
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+
+	if strings.Contains(m.View(), "update available") {
+		t.Fatal("no notice expected before an update result arrives")
+	}
+
+	updated, _ = m.Update(updateResultMsg{latest: "v9.9.9"})
+	m = updated.(Model)
+	if !strings.Contains(m.View(), "update available") {
+		t.Fatal("expected an update notice after an update result")
 	}
 }
 

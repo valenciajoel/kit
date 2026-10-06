@@ -29,4 +29,8 @@ var (
 			Underline(true)
 
 	inactiveTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
+	updateStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("214"))
 )
