@@ -151,18 +151,20 @@ update banner when one is available; run `kit update` to apply it.
 
 ### Themes
 
-kit does not reimplement theming. It lists the themes found in the configured
-`themes.dir` (for this Omakub-based setup, `~/.config/omakub/themes`) and applies
-a selection by delegating to `themes.set_command` (`omakub-theme-set`), so
-rendering, accents, GNOME/VSCode sync and hooks stay with the owner:
+kit ships Omakub's themes (vendored under `kits/themes/`, MIT) and applies them
+itself, so theming works on **any OS** without Omakub installed:
+
+- **Zellij**: writes the theme to Zellij's themes directory as `current.kdl`,
+  which the existing `theme "current"` line picks up — no config edit needed.
+- **Alacritty**: renders the theme from the palette + template and writes it
+  where the Alacritty config imports its theme from.
 
     kit themes              # list, marking the active one
     kit theme               # print the active theme
-    kit theme nord          # apply (asks first; -y to skip)
-    kit theme --dry-run nord
+    kit theme nord          # apply to zellij + alacritty (asks first; -y to skip)
+    kit theme --full nord   # also run the system theme command, e.g. omakub-theme-set
 
-The TUI **Themes** tab does the same: pick a theme and press enter (the TUI exits
-and runs the theme command).
+The TUI **Themes** tab does the same: pick a theme and press enter.
 
 ### State and backups
 

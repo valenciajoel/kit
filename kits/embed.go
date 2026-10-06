@@ -6,5 +6,5 @@ import "embed"
 
 // FS holds the default manifest (kit.yaml) and the seed configs directory.
 //
-//go:embed kit.yaml configs
+//go:embed kit.yaml configs themes
 var FS embed.FS

@@ -111,10 +111,20 @@ func main() {
 	if fm, ok := final.(tui.Model); ok && fm.RequestedTheme() != "" {
 		slug := fm.RequestedTheme()
 		fmt.Printf("kit theme → %s\n", slug)
-		if err := theme.Apply(context.Background(), m.Themes, slug, os.Stdout); err != nil {
+		st, serr := state.Load(env)
+		if serr != nil {
+			fmt.Fprintln(os.Stderr, "kit: "+serr.Error())
+			os.Exit(1)
+		}
+		if err := theme.Apply(m, slug, env, tgt, st, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "kit: "+err.Error())
 			os.Exit(1)
 		}
+		if err := theme.SetCurrent(m.Themes, env, tgt, slug); err != nil {
+			fmt.Fprintln(os.Stderr, "kit: "+err.Error())
+			os.Exit(1)
+		}
+		_ = st.Save()
 		fmt.Printf("theme set to %s\n", slug)
 	}
 }
@@ -532,6 +542,7 @@ func cmdTheme(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 	var (
 		dry  bool
 		yes  bool
+		full bool
 		name string
 	)
 	for _, a := range args {
@@ -540,6 +551,8 @@ func cmdTheme(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 			dry = true
 		case "--yes", "-y":
 			yes = true
+		case "--full", "-f":
+			full = true
 		default:
 			if strings.HasPrefix(a, "-") {
 				fmt.Fprintf(os.Stderr, "kit theme: unknown flag %q\n", a)
@@ -581,29 +594,47 @@ func cmdTheme(m *manifest.Manifest, env inventory.Environment, tgt target.Target
 		fmt.Fprintf(os.Stderr, "kit theme: unknown theme %q (run `kit themes`)\n", slug)
 		os.Exit(2)
 	}
-	if slug == cur {
-		fmt.Printf("theme %s is already active\n", slug)
-		return
-	}
-
 	setCmd := "the theme set command"
 	if m.Themes != nil && m.Themes.SetCommand != "" {
 		setCmd = m.Themes.SetCommand
 	}
 	if dry {
-		fmt.Printf("would run: %s %s\n", setCmd, slug)
+		fmt.Printf("would apply theme %q to zellij + alacritty (target=%s)\n", slug, tgt)
+		if full {
+			fmt.Printf("and run: %s %s\n", setCmd, slug)
+		}
 		return
 	}
 	if !yes {
 		prompt := install.NewPrompter(os.Stdin, os.Stdout)
-		if !prompt.Yes(fmt.Sprintf("apply theme %q? this swaps configs and restarts components [y/N] ", slug)) {
+		if !prompt.Yes(fmt.Sprintf("apply theme %q? [y/N] ", slug)) {
 			fmt.Println("aborted")
 			return
 		}
 	}
-	if err := theme.Apply(context.Background(), m.Themes, slug, os.Stdout); err != nil {
+
+	st, err := state.Load(env)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "kit theme: "+err.Error())
 		os.Exit(1)
+	}
+	if err := theme.Apply(m, slug, env, tgt, st, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "kit theme: "+err.Error())
+		os.Exit(1)
+	}
+	if err := theme.SetCurrent(m.Themes, env, tgt, slug); err != nil {
+		fmt.Fprintln(os.Stderr, "kit theme: "+err.Error())
+		os.Exit(1)
+	}
+	if err := st.Save(); err != nil {
+		fmt.Fprintln(os.Stderr, "kit theme: "+err.Error())
+		os.Exit(1)
+	}
+	if full && m.Themes != nil && m.Themes.SetCommand != "" {
+		if err := theme.RunSetCommand(context.Background(), m.Themes, slug, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "kit theme: "+err.Error())
+			os.Exit(1)
+		}
 	}
 	fmt.Printf("theme set to %s\n", slug)
 }
@@ -767,9 +798,10 @@ Usage:
   kit detect             print environment and component status
   kit presets            list the available component presets
   kit themes             list the themes available on this machine
-  kit theme [name]       show or set the active theme
-        --dry-run        show the command without applying
+  kit theme [name]       show or set the active theme (zellij + alacritty)
+        --dry-run        show what would be written without applying
         -y, --yes        apply without asking for confirmation
+        -f, --full       also run the system theme command (e.g. omakub-theme-set)
   kit state              show the files kit manages on this machine
   kit uninstall [flags]  remove (or restore) the files kit wrote
         --dry-run        report without changing anything
